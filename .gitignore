@@ -4,3 +4,4 @@ Tools/*.json
 Practice
 data
 experiment
+lib/__pycache__
