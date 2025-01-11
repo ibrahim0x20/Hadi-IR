@@ -136,7 +136,8 @@ def main(triage_folder: str) -> None:
     except Exception as e:
         print(f"An error occurred: {e}")
 
-
+    # Dictionary to track exec_name and their exec_path occurrences
+    exec_tracking = {}
     for process in prefetch_files:
         # Iterate over loaded files
         # Get the executable name
@@ -165,8 +166,7 @@ def main(triage_folder: str) -> None:
 
             # Check if the normalized path exists and isn't in known good paths
             if normalized_file:
-                # print(whitelist[0])
-                # sys.exit(0)
+
                 # 1. Check if the process file path in the whitelist
                 if normalized_file in whitelist:
                     # print(normalized_file)
@@ -175,7 +175,7 @@ def main(triage_folder: str) -> None:
                 # 2. Check if the file exists on the system when collecting the evidence artifacts. 
                 #   a. Collect all files list (name & path) on the machine during evidence collection. I used a python scrip ls.py to collect this list
                 #   b. Check if the prefetch file (Path) is in the collected files list
-                #   c. If it is not found, may be it is suspecious ==> Add it to suspecious list
+                #   c. If it is not found, may be it is suspicious ==> Add it to suspicious list
                 other_query = f"SELECT * FROM files WHERE file_path = '{normalized_file}' COLLATE NOCASE LIMIT 1"
                 other_result = query_database(list_files, other_query)
                 if not other_result:
@@ -194,7 +194,21 @@ def main(triage_folder: str) -> None:
                     print(f"Details for {exec_name}:")
                     # print(json.dumps(result, indent=4))  # Pretty-print the result
                     # sys.exit(0)
-                    print(exec_name, ':', normalized_file)
+                    # print(exec_name, ':', normalized_file)
+            # 5. Check if executable runs from multiple locations like if cmd.exe runs outside of the standard C:\Windows\System32 folder
+                    # Add to the tracking dictionary
+                if exec_name not in exec_tracking:
+                    exec_tracking[exec_name] = []
+
+                # Avoid duplicates and add the path
+                if normalized_file not in exec_tracking[exec_name]:
+                    exec_tracking[exec_name].append(normalized_file)
+    # Print or process the results
+    for exec_name, paths in exec_tracking.items():
+        if len(paths) > 1:
+            print(f"Executable Name: {exec_name}")
+            for path in paths:
+                print(f"  Path: {path}")
             # 3. Check if the file is digitally signed (Trusted). This point need more thoughts as collecting signed takes time. So, we will work on different approach
                 #       I will consider using parallel programming to speed SigCheck.py
                 # query = f"SELECT * FROM signed WHERE Path = '{normalized_file}' COLLATE NOCASE LIMIT 1"
