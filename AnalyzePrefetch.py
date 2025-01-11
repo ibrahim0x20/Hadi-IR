@@ -6,10 +6,13 @@ import platform
 from typing import Dict, Optional
 import logging
 import re
+import json
+
 
 from lib.mySQLite import SQLiteManager
 
 signed_files = SQLiteManager(os.path.join('data', 'signatures.db'))
+
 
 def setup_logging():
     """Configure logging for the scanner."""
@@ -70,34 +73,70 @@ def run_pecmd(directory_path: str, prefetch_folder: str) -> str:
     return pecmd_output
 
 
-def query_database(file_path: str) -> Optional[Dict]:
-    """Query the SQLite database for file information using MD5 hash, ignoring case sensitivity."""
+def query_database(db_instance: SQLiteManager, query: str) -> Optional[Dict]:
+    """
+    Query the specified SQLite database instance using a custom query.
+
+    Args:
+        db_instance (SQLiteManager): The database instance to query.
+        query (str): The SQL query to execute.
+
+    Returns:
+        Optional[Dict]: The first result of the query, or None if no result is found.
+    """
     try:
-        # Use COLLATE NOCASE for case-insensitive comparison
-        query = f"SELECT * FROM signed WHERE Path = '{file_path}' COLLATE NOCASE LIMIT 1"
-        results = signed_files.query_data(query)
+        results = db_instance.query_data(query)
         return results[0] if results else None
     except Exception as e:
         logger.error(f"Database error: {str(e)}")
         return None
 
 
-def main(directory_path: str) -> None:
+def main(triage_folder: str) -> None:
     """Main function to process prefetch files."""
     # Verify directory and Prefetch folder
-    prefetch_folder = check_directory(directory_path)
-
+    prefetch_folder = check_directory(triage_folder)
+    
     # Run PECmd and get output path
-    pecmd_output = os.path.join(directory_path, "PECmd_Output.csv")
+    pecmd_output = os.path.join(triage_folder, "PECmd_Output.csv")
+    
+    list_files = SQLiteManager(os.path.join(triage_folder, 'fileslist.db'))
+
+    
     if not os.path.exists(pecmd_output):
-        pecmd_output = run_pecmd(directory_path, prefetch_folder)
+        pecmd_output = run_pecmd(triage_folder, prefetch_folder)
+    
+    whitelist_path = os.path.join("data", "whitelist.txt")
+    
+    # Specify the path to your lolbas.json file
+    lolbas_path = os.path.join("data", "lolbas.json")
 
     # Load CSVs
     with open(pecmd_output, 'r') as f:
         prefetch_files = list(csv.DictReader(f))
 
-    # Example query (logic for analysis needs further implementation)
-    # result = query_database('C:\\Users\\Administrator\\Desktop\\TimelineExplorer\\Filter.txt')
+
+    with open(whitelist_path, 'r') as f:
+            whitelist = [line.strip() for line in f]
+            
+
+    
+
+    try:
+        # Open and load the JSON file
+        with open(lolbas_path, "r") as f:
+            lolbas = json.load(f)
+
+        # Print the content of the file
+        # print(json.dumps(lolbas, indent=4))  # Pretty-print the JSON with indentation
+    except FileNotFoundError:
+        print(f"File not found: {file_path}")
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
     for process in prefetch_files:
         # Iterate over loaded files
         # Get the executable name
@@ -106,6 +145,7 @@ def main(directory_path: str) -> None:
         # Skip if ExecutableName is empty
         if not exec_name:
             continue
+            
 
         # Check if the process filepath is existed
         # Split the FilesLoaded column by comma and trim spaces.
@@ -125,12 +165,43 @@ def main(directory_path: str) -> None:
 
             # Check if the normalized path exists and isn't in known good paths
             if normalized_file:
-
-                print(normalized_file)
-                result = query_database(normalized_file)
-                if result:
-                    print(result)
+                # print(whitelist[0])
                 # sys.exit(0)
+                # 1. Check if the process file path in the whitelist
+                if normalized_file in whitelist:
+                    # print(normalized_file)
+                    continue
+                
+                # 2. Check if the file exists on the system when collecting the evidence artifacts. 
+                #   a. Collect all files list (name & path) on the machine during evidence collection. I used a python scrip ls.py to collect this list
+                #   b. Check if the prefetch file (Path) is in the collected files list
+                #   c. If it is not found, may be it is suspecious ==> Add it to suspecious list
+                other_query = f"SELECT * FROM files WHERE file_path = '{normalized_file}' COLLATE NOCASE LIMIT 1"
+                other_result = query_database(list_files, other_query)
+                if not other_result:
+                    print(normalized_file)
+                    # print(other_result)
+                    
+                # 3. Check if file name less than two letters like (pb.exe)
+                if len(exec_name) < 7:
+                    print(exec_name, ':', normalized_file)
+                    
+            # 4. Check if executable in LOLBAS list
+            # Look for the entry where Name matches the executable
+                result = next((entry for entry in lolbas if entry["Name"].lower() == exec_name.lower()), None)
+                
+                if result:
+                    print(f"Details for {exec_name}:")
+                    # print(json.dumps(result, indent=4))  # Pretty-print the result
+                    # sys.exit(0)
+                    print(exec_name, ':', normalized_file)
+            # 3. Check if the file is digitally signed (Trusted). This point need more thoughts as collecting signed takes time. So, we will work on different approach
+                #       I will consider using parallel programming to speed SigCheck.py
+                # query = f"SELECT * FROM signed WHERE Path = '{normalized_file}' COLLATE NOCASE LIMIT 1"
+                # result = query_database(signed_files, query)
+                # if result:
+                    # print(result)
+            # *******************************************************************************************************        
             #     is_suspicious = False
             #     vt_results = None
             #

@@ -1,5 +1,6 @@
 Tools/*.exe
 Tools/*.dll
 Tools/*.json
+Triage/fileslist.db
 experiment
 lib/__pycache__
