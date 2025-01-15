@@ -8,7 +8,7 @@ import logging
 import re
 import json
 import pandas as pd
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 from lib.mySQLite import SQLiteManager
 
@@ -140,17 +140,14 @@ def main(triage_folder: str) -> None:
         prefetch_files = list(csv.DictReader(f))
 
     prefetch_timeline = os.path.join(triage_folder, "PECmd_Output_Timeline.csv")
-    exelist = exe_list(prefetch_timeline)
 
-    # Call the function and get the result
-    try:
-        exelist = exe_list(prefetch_timeline)
-        # print(exelist[:5])  # Print the first 5 unique executables (or fewer if the list is smaller)
-    except FileNotFoundError as e:
-        print(e)
-
-    # Example usage
-    exe_paths = exe_list(prefetch_timeline)
+    # Get the executable lists from "PECmd_Output_Timeline.csv"
+    # exelist = dict()
+    # try:
+    #     exelist = exe_list(prefetch_timeline)
+    #     # print(exelist[:5])  # Print the first 5 unique executables (or fewer if the list is smaller)
+    # except FileNotFoundError as e:
+    #     print(e)
 
     list_files = SQLiteManager(os.path.join(triage_folder, 'fileslist.db'))
 
@@ -158,25 +155,15 @@ def main(triage_folder: str) -> None:
     with open(whitelist_path, 'r') as f:
             whitelist = [line.strip() for line in f]
 
-    # Specify the path to your lolbas.json file
-    lolbas_path = os.path.join("data", "lolbas.json")
-
-    try:
-        # Open and load the JSON file
-        with open(lolbas_path, "r") as f:
-            lolbas = json.load(f)
-
-        # Print the content of the file
-        # print(json.dumps(lolbas, indent=4))  # Pretty-print the JSON with indentation
-    except FileNotFoundError:
-        print(f"File not found: {lolbas_path}")
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
 
     # Dictionary to track exec_name and their exec_path occurrences
     exec_tracking = {}
+    files_stacking = Counter()
+    directories_stacking = Counter()
+
+
+    suspicious_files = []
+
     for process in prefetch_files:
         # Iterate over loaded files
         # Get the executable name
@@ -185,86 +172,133 @@ def main(triage_folder: str) -> None:
         # Skip if ExecutableName is empty
         if not exec_name:
             continue
-            
+
+        if '.EXE' in exec_name and not exec_name.endswith('.EXE'):
+            # Regular expression to capture the executable name (e.g., "MSEDGE.EXE")
+            match = re.search(r'([A-Za-z0-9]+\.EXE)', exec_name)
+
+            # Extract the executable name if a match is found
+            if match:
+                exec_name = match.group(1)
+                # print(f"Executable Name: {exec_name}")
+            else:
+                print("No executable name found.")
 
         # Check if the process filepath is existed
         # Split the FilesLoaded column by comma and trim spaces.
         files_loaded = [f.strip() for f in process.get("FilesLoaded", "").split(",")]
+        # FilesLoaded Stacking analysis
+        # Split the FilesLoaded column by comma and trim spaces
+        # Filter and count files.
+        files_stacking.update(file for file in files_loaded)
 
         # Find the path that contains the executable name
-        # exec_path = next((f for f in files_loaded if exec_name in f), None)
-        # Example printout for a specific file
-        exec_path = ''
+        # exec_path = next((f for f in files_loaded if any(substring in f for substring in [".EXE", "TMP"])), None)
+        exec_path = next((f for f in files_loaded if exec_name in f), None)
 
-        # 8. Check if executable runs from multiple locations like if cmd.exe runs outside the standard C:\Windows\System32 folder
-        # Add to the tracking dictionary
-        # if exec_name not in exec_tracking:
-        #
-        # # Avoid duplicates and add the path
-        # if normalized_file not in exec_tracking[exec_name]:
-        #     exec_tracking[exec_name].append(normalized_file)
-
-        if exec_name in exec_tracking:
-            for path in exe_paths[exec_name]:
-                if path in exec_tracking[exec_name]:
-                    continue
-                exec_path = path
-        else:
-            exec_path = exe_paths[exec_name][0]
-            exec_tracking[exec_name] = []
-
-        # Only process if we found a matching path
+        details = []
         if exec_path:
-            exec_tracking[exec_name].append(exec_path)
-            # Ensure correct usage of re.sub for replacing with a regex
-            # RegEx to match paths like \VOLUME{GUID}
-            # pattern = r"\\VOLUME\{[^}]+\}\\"
-            # # Replace the matched path with C:\
-            # normalized_file = re.sub(pattern, r"C:\\", exec_path, count=1)
 
-            # Check if the normalized path exists and isn't in known good paths
+            # Ensure correct usage of re.sub for replacing with a regex
+            pattern = r"\\VOLUME\{[^}]+\}\\"
+            # # Replace the matched path with C:\
+            exec_path = re.sub(pattern, r"C:\\", exec_path, count=1)
+
+            if exec_name not in exec_tracking:
+                exec_tracking[exec_name] = []
+            # 8. Check if executable runs from multiple locations like if cmd.exe runs outside the standard C:\Windows\System32 folder
+            # Avoid duplicates in the tracking list
+            if exec_path not in exec_tracking[exec_name]:
+                exec_tracking[exec_name].append(exec_path)
 
             # 1. Check if the process file path in the whitelist
             if exec_path in whitelist:
                 # print(exec_path)
                 continue
-
+            if int(process.get("RunCount", "")) > 10:
+                print(exec_path, ':', process.get("RunCount", ""))
             # 2. Check if the file exists on the system when collecting the evidence artifacts. This will produce a lot of False Positive,
             # so here why we use whitelist in the above statement.
             #   a. Collect all files list (name & path) on the machine during evidence collection. I used a python scrip ls.py to collect this list
             #   b. Check if the prefetch file (Path) is in the collected files list
             #   c. If it is not found, may be it is suspicious ==> Add it to suspicious list
-            other_query = f"SELECT * FROM files WHERE file_path = '{exec_path}' COLLATE NOCASE LIMIT 1"
-            other_result = query_database(list_files, other_query)
-            if not other_result:
-                print('Not Found:')
-                print(exec_path)
+            query = f"SELECT * FROM files WHERE file_path = '{exec_path}' COLLATE NOCASE LIMIT 1"
+            file_exists = query_database(list_files, query)
+            if not file_exists:
+                details.append("Not Found")
 
             # 3. Check if file name less than two letters like (pb.exe)
             if len(exec_name) < 7:
-                print(exec_name, ':', exec_path)
+                details.append("The file name is less than two letters")
 
-        # 4. Check if executable in LOLBAS list
-        # Look for the entry where Name matches the executable
-            result = next((entry for entry in lolbas if entry["Name"].lower() == exec_name.lower()), None)
-
-            if result:
-                print(f"Details for {exec_name}:")
-                # print(json.dumps(result, indent=4))  # Pretty-print the result
-                # print(exec_name, ':', exec_path)
         # 5. Check if executable in Blacklist or IoCs
         # 6. Check if Directory in Blacklist or IoCs
         # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
 
 
+        if len(exec_tracking[exec_name]) > 1:
+            # Assume not whitelisted initially
+            whitelisted = False
+
+            # Check if all paths in exec_tracking[exec_name] are in the whitelist
+            if all(path in whitelist for path in exec_tracking[exec_name]):
+                whitelisted = True
+
+            # Add a detail if the executable is not whitelisted
+            if not whitelisted:
+                details.append("The ExecutableName runs from multiple locations")
+
+        # Collect suspicious files
+        if details:
+            suspicious = {
+                "ExecutableName": exec_name,
+                "Path": exec_tracking.get(exec_name, []),
+                "Details": details
+            }
+            suspicious_files.append(suspicious)
+
+        # # Directories Stacking analysis
+        # Split the Directories column by comma and trim spaces
+        directories = (f.strip() for f in process.get("Directories", "").split(","))
+        directories_stacking.update(folder for folder in directories)
+
+        # Iterate through the list of files
+
+        path_flag = True
+        for file in files_loaded:
+            # Filter and print only EXE files
+            if file.upper().endswith('.EXE') and exec_name not in file and file not in whitelist:
+                if path_flag:
+                    print(exec_path, ':')
+                    path_flag = False
+                print(f"  - {file}")
+    # for folder , count in directories_stacking.items():
+    #     # Filter and print only DLL files with a count greater than 5.
+    #     if  count > 20:
+    #         print(folder, ":", count)
+    # sys.exit(0)
+    #
+    # for file , count in files_stacking.items():
+    #     # Filter and print only DLL files with a count greater than 5.
+    #     if not file.upper().endswith('.DLL') and count > 10:
+    #         print(file, ":", count)
+
+    sys.exit(0)
     # Print or process the results
     # print(exec_tracking)
     # print(exe_paths)
-    for exec_name, paths in exec_tracking.items():
-        if len(paths) > 1:
-            print(f"Executable Name: {exec_name}")
-            for path in paths:
-                print(f"  Path: {path}")
+
+    # Print collected suspicious files
+    for file_info in suspicious_files:
+        exec_name = file_info["ExecutableName"]
+        paths = file_info["Path"]
+        details = file_info["Details"]
+
+        print(f"Executable Name: {exec_name}")
+        print(f"Details: {', '.join(details)}")
+        for path in paths:
+            print(f"  - Path: {path}")
+
             # 3. Check if the file is digitally signed (Trusted). This point need more thoughts as collecting signed takes time. So, we will work on different approach
                 #       I will consider using parallel programming to speed SigCheck.py
                 # query = f"SELECT * FROM signed WHERE Path = '{exec_path}' COLLATE NOCASE LIMIT 1"
