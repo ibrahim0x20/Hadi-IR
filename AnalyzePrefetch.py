@@ -155,7 +155,9 @@ def main(triage_folder: str) -> None:
     with open(whitelist_path, 'r') as f:
             whitelist = [line.strip() for line in f]
 
-
+    blacklist_path = os.path.join("data", "blacklist.txt")
+    with open(blacklist_path, 'r') as f:
+        blacklist = [line.strip() for line in f]
     # Dictionary to track exec_name and their exec_path occurrences
     exec_tracking = {}
     files_stacking = Counter()
@@ -173,7 +175,9 @@ def main(triage_folder: str) -> None:
         if not exec_name:
             continue
 
+        # Some Executables name do not end with .exe like Op-MSEDGE.EXE-37D25F9A, so we need to extract the exact exe name
         if '.EXE' in exec_name and not exec_name.endswith('.EXE'):
+            # print(f"Executable Name: {exec_name}")
             # Regular expression to capture the executable name (e.g., "MSEDGE.EXE")
             match = re.search(r'([A-Za-z0-9]+\.EXE)', exec_name)
 
@@ -181,6 +185,7 @@ def main(triage_folder: str) -> None:
             if match:
                 exec_name = match.group(1)
                 # print(f"Executable Name: {exec_name}")
+
             else:
                 print("No executable name found.")
 
@@ -232,8 +237,13 @@ def main(triage_folder: str) -> None:
                 details.append("The file name is less than two letters")
 
         # 5. Check if executable in Blacklist or IoCs
+            if exec_path in blacklist:
+                details.append("The file name found in BlackList IoCs")
+                print(exec_path, ': ', "The file name found in BlackList IoCs")
+                sys.exit(0)
         # 6. Check if Directory in Blacklist or IoCs
         # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
+
 
 
         if len(exec_tracking[exec_name]) > 1:
@@ -264,6 +274,7 @@ def main(triage_folder: str) -> None:
 
         # Iterate through the list of files
 
+        # Collect executables that access another executable
         path_flag = True
         for file in files_loaded:
             # Filter and print only EXE files
