@@ -189,14 +189,14 @@ def main(triage_folder: str) -> None:
             else:
                 print("No executable name found.")
 
-        # Check if the process filepath is existed
+        # FilesLoaded Stacking analysis
         # Split the FilesLoaded column by comma and trim spaces.
         files_loaded = [f.strip() for f in process.get("FilesLoaded", "").split(",")]
-        # FilesLoaded Stacking analysis
-        # Split the FilesLoaded column by comma and trim spaces
+
         # Filter and count files.
         files_stacking.update(file for file in files_loaded)
 
+        # Check if the process filepath is existed
         # Find the path that contains the executable name
         # exec_path = next((f for f in files_loaded if any(substring in f for substring in [".EXE", "TMP"])), None)
         exec_path = next((f for f in files_loaded if exec_name in f), None)
@@ -211,7 +211,7 @@ def main(triage_folder: str) -> None:
 
             if exec_name not in exec_tracking:
                 exec_tracking[exec_name] = []
-            # 8. Check if executable runs from multiple locations like if cmd.exe runs outside the standard C:\Windows\System32 folder
+
             # Avoid duplicates in the tracking list
             if exec_path not in exec_tracking[exec_name]:
                 exec_tracking[exec_name].append(exec_path)
@@ -239,13 +239,11 @@ def main(triage_folder: str) -> None:
         # 5. Check if executable in Blacklist or IoCs
             if exec_path in blacklist:
                 details.append("The file name found in BlackList IoCs")
-                print(exec_path, ': ', "The file name found in BlackList IoCs")
-                sys.exit(0)
+                # print(exec_path, ': ', "The file name found in BlackList IoCs")
+                # sys.exit(0)
         # 6. Check if Directory in Blacklist or IoCs
-        # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
 
-
-
+        # 8. Check if executable runs from multiple locations like if cmd.exe runs outside the standard C:\Windows\System32 folder
         if len(exec_tracking[exec_name]) > 1:
             # Assume not whitelisted initially
             whitelisted = False
@@ -258,6 +256,24 @@ def main(triage_folder: str) -> None:
             if not whitelisted:
                 details.append("The ExecutableName runs from multiple locations")
 
+        # 9. Expected executable file capability analysis from loaded DLLs
+
+        # 10. Collect executables that access another executable
+        parent_flag = True  # So that it does not repeat printing the ExecutableName
+        children = []
+        for file in files_loaded:
+            # Filter and print only EXE files
+            if file.upper().endswith('.EXE') and exec_name not in file and file not in whitelist:
+                if parent_flag:
+                    details.append("The ExecutableName accesses another executables: ")
+                    # details.append(exec_path)
+                    # print(exec_path, ':')
+                    parent_flag = False
+                # print(f"  - {file}")
+                details.append(file)
+        # if not parent_flag:
+        #     print('\n'.join(details))
+        #     sys.exit(0)
         # Collect suspicious files
         if details:
             suspicious = {
@@ -274,27 +290,15 @@ def main(triage_folder: str) -> None:
 
         # Iterate through the list of files
 
-        # Collect executables that access another executable
-        path_flag = True
-        for file in files_loaded:
-            # Filter and print only EXE files
-            if file.upper().endswith('.EXE') and exec_name not in file and file not in whitelist:
-                if path_flag:
-                    print(exec_path, ':')
-                    path_flag = False
-                print(f"  - {file}")
+
     # for folder , count in directories_stacking.items():
     #     # Filter and print only DLL files with a count greater than 5.
     #     if  count > 20:
     #         print(folder, ":", count)
     # sys.exit(0)
     #
-    # for file , count in files_stacking.items():
-    #     # Filter and print only DLL files with a count greater than 5.
-    #     if not file.upper().endswith('.DLL') and count > 10:
-    #         print(file, ":", count)
 
-    sys.exit(0)
+    #
     # Print or process the results
     # print(exec_tracking)
     # print(exe_paths)
@@ -306,10 +310,23 @@ def main(triage_folder: str) -> None:
         details = file_info["Details"]
 
         print(f"Executable Name: {exec_name}")
-        print(f"Details: {', '.join(details)}")
         for path in paths:
             print(f"  - Path: {path}")
-
+        details = ' - ' + '\n  - '.join(details)
+        print(f"Details:\n {details}")
+    sys.exit(0)
+    for file, count in files_stacking.items():
+        #  Filter and print only DLL files with a count greater than 5.
+        # Ensure correct usage of re.sub for replacing with a regex
+        pattern = r"\\VOLUME\{[^}]+\}\\"
+        # # Replace the matched path with C:\
+        file = re.sub(pattern, r"C:\\", file, count=1)
+        if not file.upper().endswith('.DLL') and count > 50:
+            # print(file, ":", count)
+            pass
+        # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
+        if file in blacklist:
+            print(file, ": ", "Found in BlackList")
             # 3. Check if the file is digitally signed (Trusted). This point need more thoughts as collecting signed takes time. So, we will work on different approach
                 #       I will consider using parallel programming to speed SigCheck.py
                 # query = f"SELECT * FROM signed WHERE Path = '{exec_path}' COLLATE NOCASE LIMIT 1"
