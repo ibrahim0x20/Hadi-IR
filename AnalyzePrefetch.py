@@ -160,7 +160,8 @@ def main(triage_folder: str) -> None:
         blacklist = [line.strip() for line in f]
     # Dictionary to track exec_name and their exec_path occurrences
     exec_tracking = {}
-    files_stacking = Counter()
+    # files_stacking = Counter()
+    files_stacking: Dict[str, set] = defaultdict(set)
     directories_stacking = Counter()
 
 
@@ -194,7 +195,10 @@ def main(triage_folder: str) -> None:
         files_loaded = [f.strip() for f in process.get("FilesLoaded", "").split(",")]
 
         # Filter and count files.
-        files_stacking.update(file for file in files_loaded)
+        # files_stacking.update(file for file in files_loaded)
+        for file in files_loaded:
+            if file:  # Only process non-empty strings
+                files_stacking[file].add(exec_name)
 
         # Check if the process filepath is existed
         # Find the path that contains the executable name
@@ -302,7 +306,35 @@ def main(triage_folder: str) -> None:
     # Print or process the results
     # print(exec_tracking)
     # print(exe_paths)
+    # for file, executables in files_stacking.items():
+        # if len(executables) > 50:
+            # print(f"{file}: {list(executables)}")
+    # sys.exit(0)
+    
+    
+    for file, executables in files_stacking.items():
+        #  Filter and print only DLL files with a count greater than 5.
+        # Ensure correct usage of re.sub for replacing with a regex
+        pattern = r"\\VOLUME\{[^}]+\}\\"
+        # # Replace the matched path with C:\
+        file = re.sub(pattern, r"C:\\", file, count=1)
+        # if not file.upper().endswith('.DLL') and count > 50:
+            # # print(file, ":", count)
+            # pass
+        # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
+        if file in blacklist:
+            # print(f"{file}: {list(executables)}")
+            
+        # Collect suspicious files
 
+            suspicious = {
+                "ExecutableName": executables,
+                "Path": "", #exec_tracking.get(list(executables), []),
+                "Details": "Found in BlackList"
+            }
+            suspicious_files.append(suspicious)
+            
+                        
     # Print collected suspicious files
     for file_info in suspicious_files:
         exec_name = file_info["ExecutableName"]
@@ -315,18 +347,7 @@ def main(triage_folder: str) -> None:
         details = ' - ' + '\n  - '.join(details)
         print(f"Details:\n {details}")
     sys.exit(0)
-    for file, count in files_stacking.items():
-        #  Filter and print only DLL files with a count greater than 5.
-        # Ensure correct usage of re.sub for replacing with a regex
-        pattern = r"\\VOLUME\{[^}]+\}\\"
-        # # Replace the matched path with C:\
-        file = re.sub(pattern, r"C:\\", file, count=1)
-        if not file.upper().endswith('.DLL') and count > 50:
-            # print(file, ":", count)
-            pass
-        # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
-        if file in blacklist:
-            print(file, ": ", "Found in BlackList")
+   
             # 3. Check if the file is digitally signed (Trusted). This point need more thoughts as collecting signed takes time. So, we will work on different approach
                 #       I will consider using parallel programming to speed SigCheck.py
                 # query = f"SELECT * FROM signed WHERE Path = '{exec_path}' COLLATE NOCASE LIMIT 1"
