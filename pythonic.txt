@@ -1,0 +1,25 @@
+1. # Find the path that contains the executable name
+        # exec_path = next((f for f in files_loaded if exec_name in f), None)
+
+2.  # Ensure correct usage of re.sub for replacing with a regex
+            # RegEx to match paths like \VOLUME{GUID}
+            # pattern = r"\\VOLUME\{[^}]+\}\\"
+            # # Replace the matched path with C:\
+            # normalized_file = re.sub(pattern, r"C:\\", exec_path, count=1)
+3. Load json file:
+     # Specify the path to your lolbas.json file
+        lolbas_path = os.path.join("data", "lolbas.json")
+
+        try:
+            # Open and load the JSON file
+            with open(lolbas_path, "r") as f:
+                lolbas = json.load(f)
+
+            # Print the content of the file
+            # print(json.dumps(lolbas, indent=4))  # Pretty-print the JSON with indentation
+        except FileNotFoundError:
+            print(f"File not found: {lolbas_path}")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON: {e}")
+        except Exception as e:
+            print(f"An error occurred: {e}")
