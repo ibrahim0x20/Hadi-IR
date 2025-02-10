@@ -1,9 +1,10 @@
 import sys
 import os
+import io
 import csv
 import subprocess
 import platform
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import logging
 import re
 import json
@@ -123,6 +124,55 @@ def query_database(db_instance: SQLiteManager, query: str) -> Optional[Dict]:
         return None
 
 
+def write_suspicious_files_to_csv(suspicious_files: List[Dict]) -> str:
+    """
+    Convert suspicious files list to CSV format.
+
+    Args:
+        suspicious_files: List of dictionaries containing suspicious file information
+
+    Returns:
+        String containing CSV data
+    """
+    # Handle empty list
+    if not suspicious_files:
+        return ""
+
+    # Get field names from the first dictionary
+    fieldnames = [
+        "ComputerName",
+        "SourceFilename",
+        "Created",
+        "Modified",
+        "ExecutableName",
+        "Path",
+        "Details"
+    ]
+
+    # Create string buffer to write CSV data
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+
+    # Write header and rows
+    writer.writeheader()
+
+    for file in suspicious_files:
+        # Convert Path list to string if needed
+        if isinstance(file.get('Path'), list):
+            file['Path'] = ', '.join(str(p) for p in file['Path'])
+
+        # Convert Details list to string if needed
+        if isinstance(file.get('Details'), list):
+            file['Details'] = ', '.join(str(p) for p in file['Details'])
+
+        writer.writerow(file)
+
+    # Get the CSV string and close the buffer
+    csv_data = output.getvalue()
+    output.close()
+
+    return csv_data
+
 def main(triage_folder: str) -> None:
     """Main function to process prefetch files."""
     # Verify directory and Prefetch folder
@@ -176,6 +226,8 @@ def main(triage_folder: str) -> None:
         if not exec_name:
             continue
 
+        if exec_name.endswith('.TMP'):
+            continue
         # Some Executables name do not end with .exe like Op-MSEDGE.EXE-37D25F9A, so we need to extract the exact exe name
         if '.EXE' in exec_name and not exec_name.endswith('.EXE'):
             # print(f"Executable Name: {exec_name}")
@@ -225,7 +277,8 @@ def main(triage_folder: str) -> None:
                 # print(exec_path)
                 continue
             if int(process.get("RunCount", "")) > 10:
-                print(exec_path, ':', process.get("RunCount", ""))
+                runcount = process.get("RunCount", "")
+                details.append(f"RunCount = {runcount}")
             # 2. Check if the file exists on the system when collecting the evidence artifacts. This will produce a lot of False Positive,
             # so here why we use whitelist in the above statement.
             #   a. Collect all files list (name & path) on the machine during evidence collection. I used a python scrip ls.py to collect this list
@@ -281,6 +334,10 @@ def main(triage_folder: str) -> None:
         # Collect suspicious files
         if details:
             suspicious = {
+                "ComputerName": "DT-ITU01-182",
+                "SourceFilename": "Prefetch",
+                "Created": process.get("SourceCreated"),
+                "Modified": process.get("SourceModified"),
                 "ExecutableName": exec_name,
                 "Path": exec_tracking.get(exec_name, []),
                 "Details": details
@@ -322,30 +379,41 @@ def main(triage_folder: str) -> None:
             # # print(file, ":", count)
             # pass
         # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
-        if file in blacklist:
-            # print(f"{file}: {list(executables)}")
-            
-        # Collect suspicious files
 
-            suspicious = {
-                "ExecutableName": executables,
-                "Path": "", #exec_tracking.get(list(executables), []),
-                "Details": "Found in BlackList"
-            }
-            suspicious_files.append(suspicious)
+        # if len(executables) == 1 and list(executables)[0] in file:
+            # This already covered by case #5
+            # continue
+
+        if len(executables) < 4:
+
+            details = []
+
+            if file in blacklist:
+                # print(f"{file}: {list(executables)}")
+                # Collect suspicious files
+                details.append("The fileloaded found in BlackList")
+                details.append(file)
+
+                for exec_name in executables:
+                    if exec_name in file:
+                        continue
+                    suspicious = {
+                        "ComputerName": "DT-ITU01-182",
+                        "SourceFilename": "Prefetch",
+                        # "Created": process.get("SourceCreated"),
+                        # "Modified": process.get("SourceModified"),
+                        "ExecutableName": exec_name,
+                        "Path": exec_tracking[exec_name],
+                        "Details": details
+                    }
+                    suspicious_files.append(suspicious)
             
-                        
+    # sys.exit(0)
     # Print collected suspicious files
-    for file_info in suspicious_files:
-        exec_name = file_info["ExecutableName"]
-        paths = file_info["Path"]
-        details = file_info["Details"]
+    # Convert to CSV
+    csv_output = write_suspicious_files_to_csv(suspicious_files)
+    print(csv_output)
 
-        print(f"Executable Name: {exec_name}")
-        for path in paths:
-            print(f"  - Path: {path}")
-        details = ' - ' + '\n  - '.join(details)
-        print(f"Details:\n {details}")
     sys.exit(0)
    
             # 3. Check if the file is digitally signed (Trusted). This point need more thoughts as collecting signed takes time. So, we will work on different approach
