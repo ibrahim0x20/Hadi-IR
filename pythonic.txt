@@ -23,3 +23,10 @@
             print(f"Error decoding JSON: {e}")
         except Exception as e:
             print(f"An error occurred: {e}")
+
+4. Better than long 'OR' condition
+    safe_paths = ("C:\\WINDOWS", "C:\\PROGRAM FILES", "C:\\PROGRAMDATA", "\\APPDATA\\LOCAL\\MICROSOFT")
+
+            # Check if the file is in an uncommon location and is an executable
+            if not any(path in file for path in safe_paths) and file.lower().endswith(('.exe', '.dll')):
+                print(f"{file}: {pf_names}")

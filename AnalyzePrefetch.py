@@ -2,6 +2,7 @@ import sys
 import os
 import io
 import csv
+import yaml
 import subprocess
 import platform
 from typing import Dict, Optional, List
@@ -10,6 +11,9 @@ import re
 import json
 import pandas as pd
 from collections import defaultdict, Counter
+
+from AptUrl.Parser import whitelist
+from click import pause
 
 from lib.mySQLite import SQLiteManager
 
@@ -146,6 +150,7 @@ def write_suspicious_files_to_csv(suspicious_files: List[Dict]) -> str:
         "Modified",
         "ExecutableName",
         "Path",
+        "LoadedFile",
         "Details"
     ]
 
@@ -172,6 +177,22 @@ def write_suspicious_files_to_csv(suspicious_files: List[Dict]) -> str:
     output.close()
 
     return csv_data
+def read_whitelist(list_files):
+    whitelist_path = os.path.join("data", "whitelist.txt")
+
+    with open(whitelist_path, 'r') as f:
+        whitelist = [line.strip() for line in f]
+
+        for idx in range(len(whitelist)):
+            if not whitelist[idx].startswith('C:\\'):
+                query = f"SELECT file_path FROM files WHERE file_path LIKE '%{whitelist[idx]}%' COLLATE NOCASE LIMIT 1"
+
+                file_exists = query_database(list_files, query)
+                if file_exists and 'appdata\\local\\temp' not in file_exists['file_path'].lower():
+                    whitelist[idx] = file_exists['file_path'].upper()
+
+    return whitelist
+
 
 def main(triage_folder: str) -> None:
     """Main function to process prefetch files."""
@@ -189,21 +210,10 @@ def main(triage_folder: str) -> None:
     with open(pecmd_output, 'r') as f:
         prefetch_files = list(csv.DictReader(f))
 
-    prefetch_timeline = os.path.join(triage_folder, "PECmd_Output_Timeline.csv")
-
-    # Get the executable lists from "PECmd_Output_Timeline.csv"
-    # exelist = dict()
-    # try:
-    #     exelist = exe_list(prefetch_timeline)
-    #     # print(exelist[:5])  # Print the first 5 unique executables (or fewer if the list is smaller)
-    # except FileNotFoundError as e:
-    #     print(e)
 
     list_files = SQLiteManager(os.path.join(triage_folder, 'fileslist.db'))
 
-    whitelist_path = os.path.join("data", "whitelist.txt")
-    with open(whitelist_path, 'r') as f:
-            whitelist = [line.strip() for line in f]
+    whitelist = read_whitelist(list_files)
 
     blacklist_path = os.path.join("data", "blacklist.txt")
     with open(blacklist_path, 'r') as f:
@@ -214,13 +224,13 @@ def main(triage_folder: str) -> None:
     files_stacking: Dict[str, set] = defaultdict(set)
     directories_stacking = Counter()
 
-
     suspicious_files = []
+    prefetch_lookup = {}
 
-    for process in prefetch_files:
+    for pf in prefetch_files:
         # Iterate over loaded files
         # Get the executable name
-        exec_name = process.get("ExecutableName")
+        exec_name = pf.get("ExecutableName")
 
         # Skip if ExecutableName is empty
         if not exec_name:
@@ -244,15 +254,26 @@ def main(triage_folder: str) -> None:
 
         # FilesLoaded Stacking analysis
         # Split the FilesLoaded column by comma and trim spaces.
-        files_loaded = [f.strip() for f in process.get("FilesLoaded", "").split(",")]
+        files_loaded = [f.strip() for f in pf.get("FilesLoaded", "").split(",")]
 
-        # Filter and count files.
-        # files_stacking.update(file for file in files_loaded)
+
+        pf_name = pf.get("SourceFilename", "").split("\\")[-1]
+        # Create a copy of the prefetch data without SourceFilename
+        pf_data = pf.copy()
+        pf_data.pop("SourceFilename", None)
+        prefetch_lookup[pf_name] = pf_data
+
+        # Split the FilesLoaded column by comma and trim spaces
+        files_loaded = [f.strip() for f in pf.get("FilesLoaded", "").split(",")]
+
+        # Process each loaded file
         for file in files_loaded:
-            if file:  # Only process non-empty strings
-                files_stacking[file].add(exec_name)
+            pattern = r"\\VOLUME\{[^}]+\}\\"
+            # # Replace the matched path with C:\
+            file = re.sub(pattern, r"C:\\", file, count=1)
+                # Store the metadata for this execution
+            files_stacking[file].add(pf_name)
 
-        # Check if the process filepath is existed
         # Find the path that contains the executable name
         # exec_path = next((f for f in files_loaded if any(substring in f for substring in [".EXE", "TMP"])), None)
         exec_path = next((f for f in files_loaded if exec_name in f), None)
@@ -276,8 +297,8 @@ def main(triage_folder: str) -> None:
             if exec_path in whitelist:
                 # print(exec_path)
                 continue
-            if int(process.get("RunCount", "")) > 10:
-                runcount = process.get("RunCount", "")
+            if int(pf.get("RunCount", "")) > 10:
+                runcount = pf.get("RunCount", "")
                 details.append(f"RunCount = {runcount}")
             # 2. Check if the file exists on the system when collecting the evidence artifacts. This will produce a lot of False Positive,
             # so here why we use whitelist in the above statement.
@@ -296,8 +317,7 @@ def main(triage_folder: str) -> None:
         # 5. Check if executable in Blacklist or IoCs
             if exec_path in blacklist:
                 details.append("The file name found in BlackList IoCs")
-                # print(exec_path, ': ', "The file name found in BlackList IoCs")
-                # sys.exit(0)
+
         # 6. Check if Directory in Blacklist or IoCs
 
         # 8. Check if executable runs from multiple locations like if cmd.exe runs outside the standard C:\Windows\System32 folder
@@ -313,40 +333,50 @@ def main(triage_folder: str) -> None:
             if not whitelisted:
                 details.append("The ExecutableName runs from multiple locations")
 
-        # 9. Expected executable file capability analysis from loaded DLLs
-
-        # 10. Collect executables that access another executable
-        parent_flag = True  # So that it does not repeat printing the ExecutableName
-        children = []
-        for file in files_loaded:
-            # Filter and print only EXE files
-            if file.upper().endswith('.EXE') and exec_name not in file and file not in whitelist:
-                if parent_flag:
-                    details.append("The ExecutableName accesses another executables: ")
-                    # details.append(exec_path)
-                    # print(exec_path, ':')
-                    parent_flag = False
-                # print(f"  - {file}")
-                details.append(file)
-        # if not parent_flag:
-        #     print('\n'.join(details))
-        #     sys.exit(0)
-        # Collect suspicious files
-        if details:
+        if details:    # Collect suspicious files
             suspicious = {
                 "ComputerName": "DT-ITU01-182",
-                "SourceFilename": "Prefetch",
-                "Created": process.get("SourceCreated"),
-                "Modified": process.get("SourceModified"),
+                "SourceFilename": pf_name,
+                "Created": pf.get("SourceCreated"),
+                "Modified": pf.get("SourceModified"),
                 "ExecutableName": exec_name,
                 "Path": exec_tracking.get(exec_name, []),
                 "Details": details
             }
             suspicious_files.append(suspicious)
+        # 9. Expected executable file capability analysis from loaded DLLs
+
+        # 10. Collect executables that access another executable
+        # parent_flag = True  # So that it does not repeat printing the ExecutableName
+        for file in files_loaded:
+            details = []
+            pattern = r"\\VOLUME\{[^}]+\}\\"
+            # # Replace the matched path with C:\
+            file = re.sub(pattern, r"C:\\", file, count=1)
+            # Filter and print only EXE files
+            if file.upper().endswith('.EXE') and exec_name not in file and file not in whitelist:
+                # if parent_flag:
+                details.append("The ExecutableName accesses another executables")
+                    # details.append(exec_path)
+                    # print(exec_path, ':')
+                    # parent_flag = False
+
+                # Collect suspicious files
+                suspicious = {
+                        "ComputerName": "DT-ITU01-182",
+                        "SourceFilename": pf_name,
+                        "Created": pf.get("SourceCreated"),
+                        "Modified": pf.get("SourceModified"),
+                        "ExecutableName": exec_name,
+                        "Path": exec_path,
+                        "LoadedFile": file,
+                        "Details": details
+                    }
+                suspicious_files.append(suspicious)
 
         # # Directories Stacking analysis
         # Split the Directories column by comma and trim spaces
-        directories = (f.strip() for f in process.get("Directories", "").split(","))
+        directories = (f.strip() for f in pf.get("Directories", "").split(","))
         directories_stacking.update(folder for folder in directories)
 
         # Iterate through the list of files
@@ -356,115 +386,49 @@ def main(triage_folder: str) -> None:
     #     # Filter and print only DLL files with a count greater than 5.
     #     if  count > 20:
     #         print(folder, ":", count)
-    # sys.exit(0)
-    #
 
-    #
-    # Print or process the results
-    # print(exec_tracking)
-    # print(exe_paths)
-    # for file, executables in files_stacking.items():
-        # if len(executables) > 50:
-            # print(f"{file}: {list(executables)}")
-    # sys.exit(0)
     
-    
-    for file, executables in files_stacking.items():
-        #  Filter and print only DLL files with a count greater than 5.
-        # Ensure correct usage of re.sub for replacing with a regex
-        pattern = r"\\VOLUME\{[^}]+\}\\"
-        # # Replace the matched path with C:\
-        file = re.sub(pattern, r"C:\\", file, count=1)
-        # if not file.upper().endswith('.DLL') and count > 50:
-            # # print(file, ":", count)
-            # pass
-        # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
+    for file, pf_names in files_stacking.items():
 
-        # if len(executables) == 1 and list(executables)[0] in file:
-            # This already covered by case #5
-            # continue
 
-        if len(executables) < 4:
+
+        if len(pf_names) < 5:
+            # 9. Check for executables running from suspicious or uncommon locations, such as: $RECYCLE.BIN, %TEMP% and %APPDATA%
+            safe_paths = ("C:\\WINDOWS", "C:\\PROGRAM FILES", "C:\\PROGRAMDATA", "\\APPDATA\\LOCAL\\MICROSOFT")
+
+            # Check if the file is in an uncommon location and is an executable
+            if not any(path in file for path in safe_paths) and file.lower().endswith(('.exe', '.dll')):
+                print(f"{file}: {pf_names}")
 
             details = []
 
+            # 7. Check if DLL or file loaded like Excell or PDF in Blacklist or IoCs
             if file in blacklist:
-                # print(f"{file}: {list(executables)}")
+                # print(f"{file}: {list(pf_names)}")
                 # Collect suspicious files
-                details.append("The fileloaded found in BlackList")
-                details.append(file)
+                details.append("The LoadedFile found in BlackList")
 
-                for exec_name in executables:
-                    if exec_name in file:
+                for pf in pf_names:
+                    exec_name = pf.split('-')[0]
+
+                    if exec_name in file: #Already covered in #5
                         continue
                     suspicious = {
                         "ComputerName": "DT-ITU01-182",
-                        "SourceFilename": "Prefetch",
-                        # "Created": process.get("SourceCreated"),
-                        # "Modified": process.get("SourceModified"),
+                        "SourceFilename": pf,
+                        "Created": prefetch_lookup[pf].get("SourceCreated"),
+                        "Modified": prefetch_lookup[pf].get("SourceModified"),
                         "ExecutableName": exec_name,
                         "Path": exec_tracking[exec_name],
+                        "LoadedFile": file,
                         "Details": details
                     }
                     suspicious_files.append(suspicious)
             
-    # sys.exit(0)
     # Print collected suspicious files
     # Convert to CSV
     csv_output = write_suspicious_files_to_csv(suspicious_files)
-    print(csv_output)
-
-    sys.exit(0)
-   
-            # 3. Check if the file is digitally signed (Trusted). This point need more thoughts as collecting signed takes time. So, we will work on different approach
-                #       I will consider using parallel programming to speed SigCheck.py
-                # query = f"SELECT * FROM signed WHERE Path = '{exec_path}' COLLATE NOCASE LIMIT 1"
-                # result = query_database(signed_files, query)
-                # if result:
-                    # print(result)
-            # *******************************************************************************************************        
-            #     is_suspicious = False
-            #     vt_results = None
-            #
-            #     # Check if file exists
-            #     if os.path.exists(exec_path):
-            #         # Calculate MD5 and check VirusTotal
-            #         # md5_hash = FileHash_MD5(exec_path)
-            #         # if md5_hash:
-            #         #     vt_results = VirusTotal(md5_hash)
-            #         #     if vt_results and vt_results.get("DetectionCount", 0) > 3:
-            #         #         print(vt_results)
-            #         #         is_suspicious = True
-            #     else:
-            #         # File doesn't exist - mark as suspicious
-            #         is_suspicious = True
-            #
-            #     # Add to suspicious files if criteria met
-            #     if is_suspicious:
-            #         suspicious_file_details = {
-            #             "ExecutableName": file["ExecutableName"],
-            #             "SuspiciousFile": exec_path,
-            #             "Exists": os.path.exists(exec_path)
-            #         }
-            #
-            #         # Add VirusTotal results if available
-            #         if vt_results:
-            #             suspicious_file_details.update({
-            #                 "MD5Hash": md5_hash,
-            #                 "VTDetections": vt_results.get("DetectionCount"),
-            #                 "VTTotalEngines": vt_results.get("TotalEngines"),
-            #                 "VTLastAnalysis": vt_results.get("LastAnalysisDate")
-            #             })
-            #
-            #         suspicious_files.append(suspicious_file_details)
-            #
-            #         # Log the finding
-            #         print(f"Found suspicious file: {exec_path}", flush=True)
-            #         if vt_results:
-            #             print(
-            #                 f"VirusTotal detections: {vt_results['DetectionCount']}/{vt_results['TotalEngines']}",
-            #                 flush=True
-            #             )
+    # print(csv_output)
 
 
 if __name__ == "__main__":
