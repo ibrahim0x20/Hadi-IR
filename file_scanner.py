@@ -1,16 +1,14 @@
 import os
-import hashlib
 import logging
-import time
 import sys
 import argparse
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 import json
 
-from lib.mySQLite import SQLiteManager
-from lib import sigcheck, FileMon, cti
+from prefetch_analyzer.lib.database.mySQLite import SQLiteManager
+from lib import FileMon
+from prefetch_analyzer.lib import sigcheck, cti
 
 # Your API key
 API_KEY = "9c9e6974068334fd518a8a1c20b5d41962613c66903e836ac26aacea1331bf05"

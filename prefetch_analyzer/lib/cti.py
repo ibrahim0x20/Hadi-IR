@@ -1,7 +1,7 @@
 import vt
 import json
 import logging
-from lib.mySQLite import SQLiteManager
+from prefetch_analyzer.lib.database.mySQLite import SQLiteManager
 from typing import Dict, Any, Optional
 
 class VirusTotal:

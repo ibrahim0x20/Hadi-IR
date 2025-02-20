@@ -181,6 +181,10 @@ def read_whitelist(list_files):
     with open(whitelist_path, 'r') as f:
         whitelist = [line.strip() for line in f]
 
+
+        # The idea behind this part is to normalize whitelisted paths that is in the User profile like
+        # APPDATA\LOCAL\MICROSOFT\ONEDRIVE\ONEDRIVE.EXE which is located in the user folder
+
         for idx in range(len(whitelist)):
             if not whitelist[idx].startswith('C:\\'):
                 query = f"SELECT file_path FROM files WHERE file_path LIKE '%{whitelist[idx]}%' COLLATE NOCASE LIMIT 1"
@@ -227,7 +231,7 @@ def main(triage_folder: str) -> None:
     """Main function to process prefetch files."""
     # Verify directory and Prefetch folder
     prefetch_folder = check_directory(triage_folder)
-    
+
     # Run PECmd and get output path
     pecmd_output = os.path.join(triage_folder, "PECmd_Output.csv")
 

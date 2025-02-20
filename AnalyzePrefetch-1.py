@@ -1,14 +1,13 @@
 import sys
 import os
 import csv
-import subprocess
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 import logging
 
-from lib.mySQLite import SQLiteManager
+from prefetch_analyzer.lib.database.mySQLite import SQLiteManager
 
 
-signed_files = SQLiteManager('data\\signatures.db')
+signed_files = SQLiteManager('prefetch_analyzer/data\\signatures.db')
 
 def setup_logging():
         """Configure logging for the scanner."""

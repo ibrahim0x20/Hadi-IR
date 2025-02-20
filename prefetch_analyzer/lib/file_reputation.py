@@ -1,13 +1,11 @@
-import os
 import logging
-import time
 import sys
 import argparse
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 import json
 
-from lib.mySQLite import SQLiteManager
-from lib import cti
+from prefetch_analyzer.lib.database.mySQLite import SQLiteManager
+from prefetch_analyzer.lib import cti
 
 # Your API key
 API_KEY = "9c9e6974068334fd518a8a1c20b5d41962613c66903e836ac26aacea1331bf05"
