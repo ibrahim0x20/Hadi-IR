@@ -78,19 +78,6 @@ def run_pecmd(directory_path: str, prefetch_folder: str) -> str:
     return pecmd_output
 
 
-def write_baseline_data(prefetch_data: dict, output_file: str) -> None:
-    # Create a new dict with only the fields we want
-    output_data = {
-        'exec_tracking': prefetch_data['exec_tracking'],
-        # Convert sets to lists for JSON serialization
-        'files_stacking': {
-            key: list(value) for key, value in prefetch_data['files_stacking'].items()
-        }
-    }
-
-    # Write to JSON file
-    with open(output_file, 'w') as f:
-        json.dump(output_data, f, indent=4)
 
 def main() -> None:
     """Main function to process prefetch files."""
@@ -105,8 +92,6 @@ def main() -> None:
 
     logger = setup_logging()
     config = Config()
-
-    data_dir = os.path.join("../../data")
 
     # Process and analyze data
     # Verify directory and Prefetch folder
@@ -125,28 +110,22 @@ def main() -> None:
         prefetch_files = list(csv.DictReader(f))
 
 
-    try:
-        # Initialize components
-        # db_manager = DatabaseManager(config.SIGNATURES_DB)
+    # try:
+    # Initialize components
+    # db_manager = DatabaseManager(config.SIGNATURES_DB)
+    prefetch_parser = None
+
+    if args.baseline:
+        prefetch_parser = PrefetchParser(config, args.baseline)
+    else:
         prefetch_parser = PrefetchParser(config)
 
-        if args.baseline:
-            prefetch_baseline = args.baseline.split('\\')[-1].split('.')[0] + '.json'
-            prefetch_baseline = os.path.join('data', prefetch_baseline)
+    prefetch_data = prefetch_parser.parse_prefetch_data(prefetch_files)
+    print(len(prefetch_data['prefetch_lookup']))
 
-            if not os.path.exists(prefetch_baseline) or os.path.getsize(prefetch_baseline) == 0:
-                with open(args.baseline, 'r') as f:
-                    baseline_files = list(csv.DictReader(f))
+    analyzer = PrefetchAnalyzer(triage_folder, config, prefetch_data, 'DT-ITU01-684')
 
-                baseline_data = prefetch_parser.parse_prefetch_data(baseline_files)
-
-                write_baseline_data(baseline_data, prefetch_baseline)
-
-        prefetch_data = prefetch_parser.parse_prefetch_data(prefetch_files)
-
-        analyzer = PrefetchAnalyzer(triage_folder, config, prefetch_data, 'DT-ITU01-684')
-
-        results = analyzer.analyze()
+    results = analyzer.analyze()
 
         # Generate report
         # output_file = Path(triage_folder) / "prefetch_analysis_report.csv"
@@ -154,9 +133,9 @@ def main() -> None:
 
         # logger.info(f"Analysis complete. Results written to {output_file}")
 
-    except Exception as e:
-        logger.error(f"Error during analysis: {str(e)}")
-        sys.exit(1)
+    # except Exception as e:
+    #     logger.error(f"Error during analysis: {str(e)}")
+    #     sys.exit(1)
 
 
 if __name__ == "__main__":

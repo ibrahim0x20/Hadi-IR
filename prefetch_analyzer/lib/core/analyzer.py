@@ -264,7 +264,7 @@ class PrefetchAnalyzer:
 
         return frequent_executions
 
-    def analyze_execution(self, pf_name: str, pf: Dict) -> List[str]:
+    def analyze_execution(self, pf_name: str, pf: Dict) :
         """
              Analyze an executable file and return suspicious details.
 
@@ -357,7 +357,7 @@ class PrefetchAnalyzer:
             logger.error(f"Database error: {str(e)}")
             return None
 
-    def analyze(self) -> List[Dict]:
+    def analyze(self) :
         """Perform comprehensive analysis of prefetch data."""
         suspicious_files = []
 
@@ -373,7 +373,7 @@ class PrefetchAnalyzer:
             csv_output = self.write_suspicious_files_to_csv()
             print(csv_output)
 
-    def analyze_loaded_files(self) -> List[str]:
+    def analyze_loaded_files(self):
         """Analyze loaded files from prefetch data."""
         for file, pf_names in self.prefetch_data['files_stacking'].items():
 
