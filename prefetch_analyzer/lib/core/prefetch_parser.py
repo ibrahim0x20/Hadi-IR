@@ -8,6 +8,7 @@ import os
 import platform
 import csv
 import json
+from pathlib import Path
 
 from lib.utils.helpers import setup_logging, write_csv_report
 
@@ -139,7 +140,7 @@ class PrefetchParser:
 
             # Some Executables name do not end with .exe like Op-MSEDGE.EXE-37D25F9A, so we need to extract the exact exe name.
             # This is required to extract the correct executable path exec_path
-            exec_name = self._extract_executable_name(exec_name)
+            # exec_name = self._extract_executable_name(exec_name)
 
             if exec_name.endswith('.TMP'):
                 continue
@@ -159,11 +160,12 @@ class PrefetchParser:
             pf_data = pf.copy()
             pf_data.pop("SourceFilename", None)
             self.prefetch_lookup[pf_name] = pf_data
-
             # 3. Do ExecutableName tracking execution from multiple locations
             # Find the path that contains the executable name in the LoadedFiles
-            files_loaded = [f.strip() for f in files_loaded.split(",")]
-            exec_path = next((f for f in files_loaded if exec_name in f), None)
+
+            exec_path = self.find_executable_path(files_loaded, exec_name)
+
+            # exec_path = next((f for f in files_loaded if exec_name in f), None)
 
             if exec_path:
                 exec_path = self.normalize_path(exec_path)
@@ -184,12 +186,24 @@ class PrefetchParser:
             'prefetch_lookup': self.prefetch_lookup
         }
 
-    def _extract_executable_name(self, exec_name: str) -> str:
-        """Extract clean executable name from potential variants."""
-        if '.EXE' in exec_name and not exec_name.endswith('.EXE'):
-            match = re.search(r'([A-Za-z0-9]+\.EXE)', exec_name)
-            return match.group(1) if match else exec_name
-        return exec_name
+    def find_executable_path(sel, loaded_files: str, target_executable):
+        """
+        Find the full path of a target executable from a list of file paths.
+
+        Args:
+            loaded_files (list): List of file paths to search through
+            target_executable (str): Name of the executable to find
+
+        Returns:
+            Path | None: Path object of the found executable or None if not found
+        """
+
+        loaded_files = [f.strip() for f in loaded_files.split(",")]
+        for file_path in loaded_files:
+            path = Path(file_path)
+            if path.suffix.upper() == '.EXE' and path.name == target_executable:
+                return path
+        return None
 
     def _parse_loaded_files(self, prefetch_data: str, prefetch_name: str) -> List[str]:
         """Analyze loaded files from prefetch data."""
