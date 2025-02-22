@@ -2,17 +2,19 @@
 from typing import Dict, List, Set, Optional, Pattern
 from collections import defaultdict
 from dataclasses import dataclass, asdict
+from datetime import datetime
 import pandas as pd
 import sys
 import os
 import csv
+import json
 import io
 import logging
 import re
 from pathlib import Path
 
 
-from AptUrl.Parser import whitelist
+# from AptUrl.Parser import whitelist
 
 from ..database.mySQLite import SQLiteManager
 
@@ -48,8 +50,8 @@ class PrefetchAnalyzer:
         self.regex_path = config.REGEX_PATH
         self.safe_paths = config.SAFE_PATHS
         self.suspicious_extensions = config.SUSPICIOUS_EXTENSIONS
-        # self.files_stacking: Dict[str, Set[str]] = defaultdict(set)
-        self.prefetch_data = prefetch_data
+        self.prefetch_data = prefetch_data.prefetch_data
+        self.baseline = prefetch_data.baseline_data
         self.suspicious_run_count = config.SUSPICIOUS_RUN_COUNT # Minimum number of executions RunCount
         self.min_exe_name_length = config.MIN_EXE_NAME_LENGTH
         self.time_threshold = config.TIME_THRESHOLD
@@ -67,8 +69,10 @@ class PrefetchAnalyzer:
         self.read_regex()
         self.whitelist = self.read_whitelist()
         self.blacklist = self.read_blacklist()
+        
 
         self.timeline = self.detect_frequent_executions(os.path.join(triage_folder, 'PECmd_Output_Timeline.csv'))
+        self.time_delta = self.get_average_time_diff(self.timeline)
 
     def update_suspecious_files(self, pf_name:str, details:str, loaded_file_file:str = None):
 
@@ -174,6 +178,57 @@ class PrefetchAnalyzer:
             str(safe_path).upper() in str(file_path).upper()
             for safe_path in self.safe_paths
         )
+    
+    def print_frequent_executions(self, frequent_executions):
+        """
+        Print the results of frequent executions.
+
+        Args:
+            frequent_executions (dict): A dictionary containing frequent executions grouped by executable.
+        """
+        if frequent_executions:
+            print("Executables running too frequently (minimum 7 executions per group):")
+            for executable, data in frequent_executions.items():
+                print(f"\nExecutable: {executable}")
+                print(f"Total number of frequent runs: {data['count']}")
+                print("Groups of frequent executions:")
+                for group_idx, times in enumerate(data['groups'], 1):
+                    print(f"\nGroup {group_idx} ({len(times)} executions):")
+                    for i in range(len(times)):
+                        if i == 0:
+                            print(f"  - {times[i]}: (first execution in group)")
+                        else:
+                            time_diff = times[i] - times[i - 1]
+                            print(f"  - {times[i]}: {time_diff}")
+        else:
+            print("No executables found with groups of 7 or more frequent executions.")
+
+    def get_average_time_diff(self, frequent_executions):
+        """
+        Compute the average time difference between frequent executions.
+
+        Args:
+            frequent_executions (dict): A dictionary containing frequent executions grouped by executable.
+
+        Returns:
+            dict: A dictionary mapping each executable to its average time difference in seconds.
+        """
+        avg_time_diffs = {}
+
+        if frequent_executions:
+            for executable, data in frequent_executions.items():
+                time_diffs = []
+                for times in data['groups']:
+                    for i in range(1, len(times)):
+                        time_diffs.append((times[i] - times[i - 1]).total_seconds())  # Convert timedelta to seconds
+
+                if time_diffs:
+                    avg_time_diffs[executable] = sum(time_diffs) / len(time_diffs)
+                else:
+                    avg_time_diffs[executable] = None  # No time differences calculated
+
+        return avg_time_diffs
+
 
     def is_whitelisted(self, file_path: str) -> bool:
         """
@@ -261,7 +316,7 @@ class PrefetchAnalyzer:
                         'count': sum(len(g) for g in groups),
                         'groups': groups
                     }
-
+        # self.print_frequent_executions(frequent_executions)
         return frequent_executions
 
     def analyze_execution(self, pf_name: str, pf: Dict) :
@@ -291,9 +346,13 @@ class PrefetchAnalyzer:
         run_count = int(pf.get("RunCount", "0"))
         if run_count > self.suspicious_run_count:
             if exec_name in self.timeline:
-                # print(self.timeline[exec_name])
 
-                details= f"RunCount = {run_count}"
+                time_delta = "{:.2f}".format(self.time_delta[exec_name])
+                details= f"RunCount = {run_count} with time_delta = {time_delta} sec"
+                # print(self.timeline[exec_name])
+                # self.print_frequent_executions({exec_name:self.timeline[exec_name]})
+                # print(details)
+                # sys.exit(0)
                 #update_suspecious_files(self, pf_name:str, details:str, loaded_file_file:str = None)
                 self.update_suspecious_files(pf_name, details)
 
@@ -312,6 +371,28 @@ class PrefetchAnalyzer:
             if not all(path in self.whitelist for path in self.prefetch_data['exec_tracking'][exec_name]):
                 details = "The ExecutableName runs from multiple locations"
                 self.update_suspecious_files(pf_name, details)
+                
+     # 10. Collect executables that access another executable
+        # parent_flag = True  # So that it does not repeat printing the ExecutableName
+        # Filter and print only EXE files
+        loaded_files = pf.get('FilesLoaded', '')
+        loaded_files = [f.strip() for f in loaded_files.split(",")]
+        
+        for file in loaded_files:
+            if file.upper().endswith('.EXE') and exec_name not in file :  #and file not in whitelist
+                # print(file)
+                # print(exec_name)
+                child_exec = file.split('\\')[-1]
+
+                self.pftree(pf_name, child_exec)
+
+                # if parent_flag:
+                details = "The ExecutableName accesses another executables"
+                    # details.append(exec_path)
+                    # print(exec_path, ':')
+                    # parent_flag = False
+                    
+
 
     # 1. Check LoadedFile existence
     def check_file_existence(self, pf_name: str, pf: Dict) :
@@ -325,6 +406,10 @@ class PrefetchAnalyzer:
         Returns:
             True if file exists, False otherwise
         """
+        
+        if pf_name in self.baseline['baseline_lookup']:
+            return
+            
         exec_name = pf.get("ExecutableName")
         if exec_name in self.prefetch_data['exec_tracking']:
             exec_list = self.prefetch_data['exec_tracking'][exec_name]
@@ -337,7 +422,6 @@ class PrefetchAnalyzer:
                 if not result:
                     details = f"Not Found"
                     self.update_suspecious_files(pf_name, details, file)
-                    break
 
     def query_database(self, db_instance: SQLiteManager, query: str) -> Optional[Dict]:
         """
@@ -357,25 +441,17 @@ class PrefetchAnalyzer:
             logger.error(f"Database error: {str(e)}")
             return None
 
-    def analyze(self) :
-        """Perform comprehensive analysis of prefetch data."""
-        suspicious_files = []
-
-        # Analyze execution patterns
-
-        for pf_name in self.prefetch_data['prefetch_lookup'] :
-            pf = self.prefetch_data['prefetch_lookup'][pf_name]
-            self.analyze_execution(pf_name, pf)
-
-        self.analyze_loaded_files()
-
-        if self.suspicious_files:
-            csv_output = self.write_suspicious_files_to_csv()
-            print(csv_output)
+    
 
     def analyze_loaded_files(self):
         """Analyze loaded files from prefetch data."""
+        
+       
         for file, pf_names in self.prefetch_data['files_stacking'].items():
+            
+                    
+            if file in self.baseline['files_stacking']:
+                continue
 
             if len(pf_names) < 5:
                 # 9. Check for executables running from suspicious or uncommon locations, such as: $RECYCLE.BIN, %TEMP% and %APPDATA%
@@ -427,6 +503,68 @@ class PrefetchAnalyzer:
         #             print(pf_names)
         #             print(file)
          # sys.exit(0)
+         
+
+    def pftree(self, pf_name, child_exec):
+        """Process a single parent-child relationship and update the execution tree."""
+        prefetch_lookup = self.prefetch_data['prefetch_lookup']
+        
+        if pf_name not in prefetch_lookup:
+            return
+
+        pf_parent = prefetch_lookup[pf_name]
+        pf_names = list(prefetch_lookup.keys())
+
+       
+
+        parent_runs = [
+            datetime.strptime(pf_parent[key], '%Y-%m-%d %H:%M:%S')
+            for key in ["LastRun"] + [f"PreviousRun{i}" for i in range(7)]
+            if key in pf_parent and pf_parent[key]  # Ensure the key exists and is not empty
+        ]
+
+
+        for ch_pfname in pf_names:
+            if child_exec.lower() in ch_pfname.lower() and ch_pfname != pf_name:  # Use exact match instead of substring
+
+                try:
+                    child_runs = [
+                        datetime.strptime(prefetch_lookup[ch_pfname][key], '%Y-%m-%d %H:%M:%S')
+                        for key in ["LastRun"] + [f"PreviousRun{i}" for i in range(7)]
+                        if key in prefetch_lookup[ch_pfname] and prefetch_lookup[ch_pfname][key]
+                    ]
+
+                    # Calculate time difference
+                    for parent_time in parent_runs:
+                        for child_time in child_runs:
+                            time_delta = abs((child_time - parent_time).total_seconds())
+
+                            if time_delta < 240:  # 2 minutes threshold
+                                if pf_name not in self.execution_tree:
+                                    self.execution_tree[pf_name] = []
+                                if ch_pfname not in self.execution_tree[pf_name]:
+                                    self.execution_tree[pf_name].append(ch_pfname)
+                except ValueError:
+                    continue
+
+        
+    def analyze(self) :
+        """Perform comprehensive analysis of prefetch data."""
+        suspicious_files = []
+
+        # Analyze execution patterns
+
+        for pf_name in self.prefetch_data['prefetch_lookup'] :
+            pf = self.prefetch_data['prefetch_lookup'][pf_name]
+            self.analyze_execution(pf_name, pf)
+            
+
+
+        self.analyze_loaded_files()
+
+        if self.suspicious_files:
+            csv_output = self.write_suspicious_files_to_csv()
+            print(csv_output)
 
 
 

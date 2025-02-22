@@ -31,6 +31,7 @@ class SQLiteManager:
         self.logger = logging.getLogger(__name__)
         if not self.logger.handlers:
             handler = logging.StreamHandler()
+            handler = logging.FileHandler('prefetch_analysis.log')
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )

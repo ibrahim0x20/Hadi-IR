@@ -1,5 +1,5 @@
 
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 from collections import defaultdict
 import logging
 import re
@@ -12,14 +12,16 @@ from pathlib import Path
 
 from lib.utils.helpers import setup_logging, write_csv_report
 
-
+logger = setup_logging()
 class PrefetchParser:
     """Parser for Windows Prefetch files."""
 
-    def __init__(self, config, baseline_file = None):
+    def __init__(self, config, prefetch_files, baseline_file = None):
         self.config = config
 
-        self.logger = logging.getLogger(__name__)
+        # self.logger = logging.getLogger(__name__)
+        # self.logger = setup_logging()
+        self.prefetch_files = prefetch_files
         self.exec_tracking: Dict[str, List[str]] = {}
         self.files_stacking: Dict[str, Set[str]] = defaultdict(set)
         self.prefetch_lookup = {}
@@ -29,12 +31,14 @@ class PrefetchParser:
             self.baseline_data = self.prefetch_baseline()
             self.exec_tracking: Dict[str, List[str]] = {}
             self.files_stacking: Dict[str, Set[str]] = defaultdict(set)
+            
+        self.prefetch_data = self.parse_prefetch_data()
 
 
     def normalize_path(self, path: str) -> str:
         """Normalize Windows paths by replacing volume GUIDs with drive letters."""
         pattern = r"\\VOLUME\{[^}]+\}\\"
-        return re.sub(pattern, r"C:\\", path, count=1)
+        return re.sub(pattern, r"C:\\", str(path), count=1)
 
     # def normalize_executable_name(self, exec_name: str) -> str:
     #     if '.EXE' in exec_name and not exec_name.endswith('.EXE'):
@@ -63,7 +67,7 @@ class PrefetchParser:
 
                 # Some Executables name do not end with .exe like Op-MSEDGE.EXE-37D25F9A, so we need to extract the exact exe name.
                 # This is required to extract the correct executable path exec_path
-                exec_name = self._extract_executable_name(exec_name)
+                # exec_name = self._extract_executable_name(exec_name)
 
                 if exec_name.endswith('.TMP'):
                     continue
@@ -79,8 +83,12 @@ class PrefetchParser:
 
                 # 3. Do ExecutableName tracking execution from multiple locations
                 # Find the path that contains the executable name in the LoadedFiles
-                files_loaded = [f.strip() for f in files_loaded.split(",")]
-                exec_path = next((f for f in files_loaded if exec_name in f), None)
+                # files_loaded = [f.strip() for f in files_loaded.split(",")]
+                # exec_path = next((f for f in files_loaded if exec_name in f), None)
+                
+                
+                exec_path = self.find_executable_path(files_loaded, exec_name)
+
 
                 if exec_path:
                     exec_path = self.normalize_path(exec_path)
@@ -104,7 +112,7 @@ class PrefetchParser:
             return baseline_data
 
         else:
-            print("Load json baseline file")
+            logger.info("Load json baseline file")
             try:
                 with open(prefetch_baseline_file, 'r') as f:
                     return json.load(f)
@@ -131,11 +139,11 @@ class PrefetchParser:
         with open(output_file, 'w') as f:
             json.dump(output_data, f, indent=4)
 
-    def parse_prefetch_data(self, prefetch_files: List[Dict]) -> Dict:
+    def parse_prefetch_data(self) -> Dict:
         """Parse prefetch data and return structured information."""
 
 
-        for pf in prefetch_files:
+        for pf in self.prefetch_files:
             exec_name = pf.get("ExecutableName", "")
 
             # Some Executables name do not end with .exe like Op-MSEDGE.EXE-37D25F9A, so we need to extract the exact exe name.
@@ -146,10 +154,11 @@ class PrefetchParser:
                 continue
 
             pf_name = pf.get("SourceFilename", "").split("\\")[-1]
-            if hasattr(self, 'baseline_data') and self.baseline_data:
+            
+            # if hasattr(self, 'baseline_data') and self.baseline_data:
                 # print('self.baseline_data is set')
-                if pf_name in self.baseline_data['baseline_lookup']:
-                    continue
+                # if pf_name in self.baseline_data['baseline_lookup']:
+                    # continue
 
             # 1. Do LoadedFiles stacking which means how many executable has accessed the loaded file
             files_loaded = pf.get("FilesLoaded", "")
@@ -175,9 +184,10 @@ class PrefetchParser:
                 self._track_executable(exec_name, exec_path)
             else:
 
-                print(files_loaded)
+                # print(files_loaded)
                 print("Executable path not found")
                 print(exec_name)
+                print(pf_name)
                 sys.exit(0)
 
         return {
@@ -186,24 +196,61 @@ class PrefetchParser:
             'prefetch_lookup': self.prefetch_lookup
         }
 
-    def find_executable_path(sel, loaded_files: str, target_executable):
+    def find_executable_path(self, loaded_files: str, target_executable: str) -> Optional[Path]:
         """
         Find the full path of a target executable from a list of file paths.
 
         Args:
-            loaded_files (list): List of file paths to search through
-            target_executable (str): Name of the executable to find
+            loaded_files (List[str]): List of file paths to search through.
+            target_executable (str): Name of the executable to find.
 
         Returns:
-            Path | None: Path object of the found executable or None if not found
+            Optional[Path]: Path object of the found executable or None if not found.
         """
 
+        # My version of this function
+        # --------------------------------------------------------------
+        # loaded_files = [f.strip() for f in loaded_files.split(",")]
+        # for file_path in loaded_files:
+            # path = Path(file_path)
+            
+            # if file_path.endswith('.EXE'):
+                
+                # exec_name = file_path.split('\\')[-1]
+                # if len(exec_name) > len(target_executable):
+                    # exec_name = exec_name[:-(len(exec_name)-len(target_executable))]
+                    # if exec_name in target_executable:
+                        # return Path(file_path)
+            
+            # path = Path(file_path)
+            # if path.suffix.upper() == '.EXE' and path.name in target_executable:
+                # return path
+                
+        # ChatGPT version of this function with my help on the if condition
+        # --------------------------------------------------------------
+        
+        # 
         loaded_files = [f.strip() for f in loaded_files.split(",")]
-        for file_path in loaded_files:
+
+        target_executable = target_executable.lower()
+        
+        for file_path in map(str.strip, loaded_files):
             path = Path(file_path)
-            if path.suffix.upper() == '.EXE' and path.name == target_executable:
-                return path
+            
+            if path.suffix.upper() == '.EXE':
+                exec_name = path.name.lower()
+
+                # Covers all cases where the target executable might be related to the actual filename
+                if (
+                    exec_name.startswith(target_executable) or
+                    target_executable.endswith(exec_name) or
+                    target_executable in exec_name or
+                    exec_name in target_executable
+                ):
+                    return path
         return None
+        
+        
 
     def _parse_loaded_files(self, prefetch_data: str, prefetch_name: str) -> List[str]:
         """Analyze loaded files from prefetch data."""

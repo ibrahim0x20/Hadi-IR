@@ -25,12 +25,14 @@ from pathlib import Path
 import csv
 import json
 
+from lib.utils.helpers import setup_logging, write_csv_report
+
+logger = setup_logging('w')
 
 from lib.config.config import Config
 from lib.core.analyzer import PrefetchAnalyzer
 from lib.core.prefetch_parser import PrefetchParser
 from lib.database.db_manager import DatabaseManager
-from lib.utils.helpers import setup_logging, write_csv_report
 
 
 def check_directory(directory_path: str) -> str:
@@ -90,7 +92,8 @@ def main() -> None:
     args = parser.parse_args()
 
 
-    logger = setup_logging()
+   
+    logger.info("Logger is setup correctly")
     config = Config()
 
     # Process and analyze data
@@ -116,14 +119,15 @@ def main() -> None:
     prefetch_parser = None
 
     if args.baseline:
-        prefetch_parser = PrefetchParser(config, args.baseline)
+        prefetch_parser = PrefetchParser(config, prefetch_files, args.baseline)
     else:
         prefetch_parser = PrefetchParser(config)
 
-    prefetch_data = prefetch_parser.parse_prefetch_data(prefetch_files)
-    print(len(prefetch_data['prefetch_lookup']))
-
-    analyzer = PrefetchAnalyzer(triage_folder, config, prefetch_data, 'DT-ITU01-684')
+    # print(len(prefetch_data['prefetch_lookup']))
+    
+    # print(prefetch_parser.prefetch_data)
+    # sys.exit(0)
+    analyzer = PrefetchAnalyzer(triage_folder, config, prefetch_parser, 'DT-ITU01-684')
 
     results = analyzer.analyze()
 
