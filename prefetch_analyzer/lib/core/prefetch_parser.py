@@ -233,7 +233,7 @@ class PrefetchParser:
         loaded_files = [f.strip() for f in loaded_files.split(",")]
 
         target_executable = target_executable.lower()
-        
+        exec_name = ''
         for file_path in map(str.strip, loaded_files):
             path = Path(file_path)
             
@@ -247,7 +247,11 @@ class PrefetchParser:
                     target_executable in exec_name or
                     exec_name in target_executable
                 ):
+                    print(path)
+                    print(exec_name)
+                    print(target_executable)
                     return path
+
         return None
         
         
