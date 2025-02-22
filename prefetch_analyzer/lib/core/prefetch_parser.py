@@ -238,7 +238,7 @@ class PrefetchParser:
             path = Path(file_path)
             
             if path.suffix.upper() == '.EXE':
-                exec_name = path.name.lower()
+                exec_name = file_path.split('\\')[-1].lower()
 
                 # Covers all cases where the target executable might be related to the actual filename
                 if (
@@ -247,11 +247,7 @@ class PrefetchParser:
                     target_executable in exec_name or
                     exec_name in target_executable
                 ):
-                    print(path)
-                    print(exec_name)
-                    print(target_executable)
                     return path
-
         return None
         
         
