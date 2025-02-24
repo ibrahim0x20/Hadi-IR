@@ -36,6 +36,7 @@ from lib.core.prefetch_parser import PrefetchParser
 from lib.database.db_manager import DatabaseManager
 
 
+
 def check_directory(directory_path: str) -> str:
     """Validate directory path and Prefetch folder existence."""
     if not directory_path:
@@ -81,6 +82,7 @@ def run_pecmd(directory_path: str, prefetch_folder: str) -> str:
     return pecmd_output
 
 
+    
 
 def main() -> None:
     """Main function to process prefetch files."""
@@ -89,6 +91,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='prefetch_analyzer - Simple Windows Prefetch Analyzer')
     parser.add_argument('triage_folder', help='Path to the triage folder containing prefetch files')
     parser.add_argument('-b', '--baseline', help='Path to prefetch baseline file', metavar='path', default='')
+    parser.add_argument('-t', '--tree', action='store_true', help='Print processes list tree')
+    parser.add_argument('-rc', '--runcount', action='store_true', help='Print the list of executables that run frequently')
+
 
     args = parser.parse_args()
 
@@ -110,7 +115,7 @@ def main() -> None:
         pecmd_output = run_pecmd(triage_folder, prefetch_folder)
 
     # Load PECmd_Output CSVs
-    with open(pecmd_output, 'r') as f:
+    with open(pecmd_output, 'r', encoding='utf-8') as f:
         prefetch_files = list(csv.DictReader(f))
 
 
@@ -122,7 +127,7 @@ def main() -> None:
     if args.baseline:
         prefetch_parser = PrefetchParser(config, prefetch_files, args.baseline)
     else:
-        prefetch_parser = PrefetchParser(config)
+        prefetch_parser = PrefetchParser(config, prefetch_files)
 
     # print(len(prefetch_data['prefetch_lookup']))
     
@@ -130,7 +135,19 @@ def main() -> None:
     # sys.exit(0)
     analyzer = PrefetchAnalyzer(triage_folder, config, prefetch_parser, 'DT-ITU01-684')
 
-    results = analyzer.analyze()
+    analyzer.analyze()
+    
+    if analyzer.suspicious_files:
+        csv_output = analyzer.write_suspicious_files_to_csv()
+        print(csv_output)
+        
+    if args.tree:
+        if analyzer.execution_tree:
+            analyzer.print_pftree()
+        
+    if args.runcount:
+        if analyzer.timeline:
+            analyzer.print_frequent_executions(analyzer.timeline)
 
         # Generate report
         # output_file = Path(triage_folder) / "prefetch_analysis_report.csv"

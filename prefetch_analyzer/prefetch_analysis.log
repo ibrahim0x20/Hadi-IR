@@ -1,6 +1,5 @@
-2025-02-24 00:45:30,800 - lib.utils.helpers - INFO - Logger is setup correctly
-2025-02-24 00:45:30,823 - lib.utils.helpers - INFO - Load json baseline file
-2025-02-24 00:45:30,902 - lib.database.mySQLite - INFO - Database connection initialized successfully
-2025-02-24 00:45:30,903 - lib.database.mySQLite - INFO - Database connection initialized successfully
-2025-02-24 00:45:31,515 - lib.database.mySQLite - INFO - Database connection closed successfully
-2025-02-24 00:45:31,515 - lib.database.mySQLite - INFO - Database connection closed successfully
+2025-02-24 22:54:25,384 - lib.utils.helpers - INFO - Logger is setup correctly
+2025-02-24 22:54:25,774 - lib.database.mySQLite - INFO - Database connection initialized successfully
+2025-02-24 22:54:25,774 - lib.database.mySQLite - INFO - Database connection initialized successfully
+2025-02-24 22:54:26,665 - lib.database.mySQLite - INFO - Database connection closed successfully
+2025-02-24 22:54:26,665 - lib.database.mySQLite - INFO - Database connection closed successfully

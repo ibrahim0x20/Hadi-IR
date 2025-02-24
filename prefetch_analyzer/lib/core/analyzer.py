@@ -15,6 +15,18 @@ from pathlib import Path
 
 
 # from AptUrl.Parser import whitelist
+is_redirected = None
+
+def print_to_console(message):
+    '''
+        Always print to console even if redirected to output file
+    '''
+    is_redirected = not sys.stdout.isatty()
+    
+    if is_redirected:
+        print(message, file=sys.stderr, flush=True)
+        return
+    print(message)
 
 from ..database.mySQLite import SQLiteManager
 
@@ -51,7 +63,7 @@ class PrefetchAnalyzer:
         self.safe_paths = config.SAFE_PATHS
         self.suspicious_extensions = config.SUSPICIOUS_EXTENSIONS
         self.prefetch_data = prefetch_data.prefetch_data
-        self.baseline = prefetch_data.baseline_data
+        
         self.suspicious_run_count = config.SUSPICIOUS_RUN_COUNT # Minimum number of executions RunCount
         self.min_exe_name_length = config.MIN_EXE_NAME_LENGTH
         self.time_threshold = config.TIME_THRESHOLD
@@ -69,6 +81,11 @@ class PrefetchAnalyzer:
         self.read_regex()
         self.whitelist = self.read_whitelist()
         self.blacklist = self.read_blacklist()
+        
+        if hasattr(prefetch_data, 'baseline_data'):
+            self.baseline = prefetch_data.baseline_data
+        else:
+            self.baseline = {}
         
 
         self.timeline = self.detect_frequent_executions(os.path.join(triage_folder, 'PECmd_Output_Timeline.csv'))
@@ -405,7 +422,7 @@ class PrefetchAnalyzer:
             True if file exists, False otherwise
         """
         
-        if pf_name in self.baseline['baseline_lookup']:
+        if 'baseline_lookup' in self.baseline and pf_name in self.baseline['baseline_lookup']:
             return
             
         exec_name = pf.get("ExecutableName")
@@ -448,7 +465,7 @@ class PrefetchAnalyzer:
         for file, pf_names in self.prefetch_data['files_stacking'].items():
             
                     
-            if file in self.baseline['files_stacking']:
+            if 'files_stacking' in self.baseline and file in self.baseline['files_stacking']:
                 continue
 
             if len(pf_names) < 5:
@@ -503,10 +520,11 @@ class PrefetchAnalyzer:
 
     def print_pftree(self):
         # Or if you want to iterate and format it yourself:
+        print_to_console("\nThis is a parent-child relationship for executable accessed another one and found the accessed file is being executed after the parent\n")
         for parent, data in self.execution_tree.items():
-            print(f"{parent}: \t\t{data['parent_time']}")
+            print_to_console(f"{parent}: \t\t{data['parent_time']}")
             for child, child_time in data['children'].items():
-                print(f"  -{child}: \t\t{child_time[0]} - {child_time[1]}")
+                print_to_console(f"  - {child}: \t\t{child_time[0]} - {child_time[1]}")
 
     def pftree(self, pf_name, child_exec):
         """Process a single parent-child relationship and update the execution tree."""
@@ -575,9 +593,7 @@ class PrefetchAnalyzer:
 
         self.analyze_loaded_files()
 
-        if self.suspicious_files:
-            csv_output = self.write_suspicious_files_to_csv()
-            print(csv_output)
+        
 
 
 
