@@ -55,9 +55,9 @@ class PrefetchAnalyzer:
         self.suspicious_run_count = config.SUSPICIOUS_RUN_COUNT # Minimum number of executions RunCount
         self.min_exe_name_length = config.MIN_EXE_NAME_LENGTH
         self.time_threshold = config.TIME_THRESHOLD
-        self.execution_tree: Dict[str, List[str]] = defaultdict(list)
-
-
+        # self.execution_tree: Dict[str, List[str]] = defaultdict(list)
+        self.execution_tree = defaultdict(lambda: {"parent_time": None, "children": {}})
+        # {parent1: {parent_time: 646, children: {child1: child1_time, child2: child2_time,...}}}
 
         # Local Variables
         self.signed_files = SQLiteManager(os.path.abspath(config.SIGNATURES_DB))
@@ -335,62 +335,60 @@ class PrefetchAnalyzer:
         details = None
         exec_name = pf.get("ExecutableName")
 
-        # 1. Check if the LoadedFile exists on the system when collecting the evidence artifacts. This will produce a lot of False Positive,
-        # so here why we use whitelist in the above statement.
+        # 1. Check if the Executable exists on the system when collecting the evidence artifacts.
+        # **************************************************************************************************************
+        # # This will produce a lot of False Positive, so here why we use whitelist in the above statement.
         #   a. Collect all files list (name & path) on the machine during evidence collection. I used a python scrip ls.py to collect this list
         #   b. Check if the prefetch file (Path) is in the collected files list
         #   c. If it is not found, may be it is suspicious ==> Add it to suspicious list
-        self.check_file_existence(pf_name, pf)
 
+        self.check_file_existence(pf_name, pf)
         # 2. Check run count
+        # **************************************************************************************************************
         run_count = int(pf.get("RunCount", "0"))
         if run_count > self.suspicious_run_count:
             if exec_name in self.timeline:
-
                 time_delta = "{:.2f}".format(self.time_delta[exec_name])
                 details= f"RunCount = {run_count} with time_delta = {time_delta} sec"
-                # print(self.timeline[exec_name])
-                # self.print_frequent_executions({exec_name:self.timeline[exec_name]})
-                # print(details)
-                # sys.exit(0)
-                #update_suspecious_files(self, pf_name:str, details:str, loaded_file_file:str = None)
                 self.update_suspecious_files(pf_name, details)
 
-
         # 3. Check executable name length
+        # **************************************************************************************************************
         if len(exec_name) < self.min_exe_name_length:
             details = "The file name is less than the minimum length"
             self.update_suspecious_files(pf_name, details)
 
         # 4. Check blacklist
-        # if exec_path in self.blacklist:
-        #     details.append("The file name found in BlackList IoCs")
+        # **************************************************************************************************************
+        for exec_path in self.prefetch_data['exec_tracking'][exec_name]:
+            if exec_path in self.blacklist:
+                details = "The file name found in BlackList IoCs"
+                self.update_suspecious_files(pf_name, details)
 
         # 5. Check multiple locations
+        # **************************************************************************************************************
         if len(self.prefetch_data['exec_tracking'][exec_name]) > 1:
             if not all(path in self.whitelist for path in self.prefetch_data['exec_tracking'][exec_name]):
-                details = "The ExecutableName runs from multiple locations"
-                self.update_suspecious_files(pf_name, details)
+                wl_flag=False
+                for path in self.prefetch_data['exec_tracking'][exec_name]:
+                    if self.is_whitelisted(path):
+                        wl_flag = True
+                if not wl_flag:
+                    details = "The ExecutableName runs from multiple locations"
+                    self.update_suspecious_files(pf_name, details)
                 
-     # 10. Collect executables that access another executable
-        # parent_flag = True  # So that it does not repeat printing the ExecutableName
-        # Filter and print only EXE files
-        loaded_files = pf.get('FilesLoaded', '')
-        loaded_files = [f.strip() for f in loaded_files.split(",")]
+        # 10. Collect executables that access another executable
+        # **************************************************************************************************************
         
-        for file in loaded_files:
+        for file in pf.get('FilesLoaded', ''):
             if file.upper().endswith('.EXE') and exec_name not in file :  #and file not in whitelist
                 # print(file)
                 # print(exec_name)
                 child_exec = file.split('\\')[-1]
-
                 self.pftree(pf_name, child_exec)
-
-                # if parent_flag:
                 details = "The ExecutableName accesses another executables"
-                    # details.append(exec_path)
-                    # print(exec_path, ':')
-                    # parent_flag = False
+
+
                     
 
 
@@ -414,7 +412,7 @@ class PrefetchAnalyzer:
         if exec_name in self.prefetch_data['exec_tracking']:
             exec_list = self.prefetch_data['exec_tracking'][exec_name]
             for file in exec_list:
-                if file in self.whitelist:
+                if file in self.whitelist or self.is_whitelisted(file):
                     continue
                 result = None
                 query = f"SELECT * FROM files WHERE file_path = '{file}' COLLATE NOCASE LIMIT 1"
@@ -480,7 +478,7 @@ class PrefetchAnalyzer:
                     details = "The LoadedFile found in BlackList"
                     for pf_name in pf_names:
                         self.update_suspecious_files(pf_name, details, file)
-        # sys.exit(0)
+
         # ******************************************************************
         # Analyze based on LoadedFile existence
         # for file in self.prefetch_data['files_stacking']:
@@ -502,8 +500,13 @@ class PrefetchAnalyzer:
         #             pf_names = self.prefetch_data['files_stacking'][file]
         #             print(pf_names)
         #             print(file)
-         # sys.exit(0)
-         
+
+    def print_pftree(self):
+        # Or if you want to iterate and format it yourself:
+        for parent, data in self.execution_tree.items():
+            print(f"{parent}: \t\t{data['parent_time']}")
+            for child, child_time in data['children'].items():
+                print(f"  -{child}: \t\t{child_time[0]} - {child_time[1]}")
 
     def pftree(self, pf_name, child_exec):
         """Process a single parent-child relationship and update the execution tree."""
@@ -514,8 +517,6 @@ class PrefetchAnalyzer:
 
         pf_parent = prefetch_lookup[pf_name]
         pf_names = list(prefetch_lookup.keys())
-
-       
 
         parent_runs = [
             datetime.strptime(pf_parent[key], '%Y-%m-%d %H:%M:%S')
@@ -537,13 +538,26 @@ class PrefetchAnalyzer:
                     # Calculate time difference
                     for parent_time in parent_runs:
                         for child_time in child_runs:
-                            time_delta = abs((child_time - parent_time).total_seconds())
+                            if child_time >= parent_time:
+                                time_delta = (child_time - parent_time).total_seconds()
 
-                            if time_delta < 240:  # 2 minutes threshold
-                                if pf_name not in self.execution_tree:
-                                    self.execution_tree[pf_name] = []
-                                if ch_pfname not in self.execution_tree[pf_name]:
-                                    self.execution_tree[pf_name].append(ch_pfname)
+                                if time_delta < 86400:  # 2 minutes threshold
+                                    # Initialize parent if not exists
+                                    if pf_name not in self.execution_tree:
+                                        self.execution_tree[pf_name] = {
+                                            'parent_time': parent_time,
+                                            'children': {}
+                                        }
+
+                                    # Update child only if:
+                                    # 1. Child doesn't exist yet, or
+                                    # 2. New delta is smaller than existing delta
+                                    if (ch_pfname not in self.execution_tree[pf_name]['children'] or
+                                            time_delta < self.execution_tree[pf_name]['children'][ch_pfname][1]):
+
+                                        # Store [child_time, delta] and ensure child is after parent
+                                        self.execution_tree[pf_name]['children'][ch_pfname] = [child_time,
+                                                                                                   time_delta]
                 except ValueError:
                     continue
 
@@ -557,7 +571,6 @@ class PrefetchAnalyzer:
         for pf_name in self.prefetch_data['prefetch_lookup'] :
             pf = self.prefetch_data['prefetch_lookup'][pf_name]
             self.analyze_execution(pf_name, pf)
-            
 
 
         self.analyze_loaded_files()

@@ -23,6 +23,7 @@ import subprocess
 import platform
 from pathlib import Path
 import csv
+csv.field_size_limit(5242880)
 import json
 
 from lib.utils.helpers import setup_logging, write_csv_report

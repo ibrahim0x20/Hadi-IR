@@ -25,6 +25,7 @@ class PrefetchParser:
         self.exec_tracking: Dict[str, List[str]] = {}
         self.files_stacking: Dict[str, Set[str]] = defaultdict(set)
         self.prefetch_lookup = {}
+        self.cmdline: Dict[str, Set[str]] = defaultdict(set)
 
         if baseline_file:
             self.baseline_file = baseline_file
@@ -150,7 +151,7 @@ class PrefetchParser:
             # This is required to extract the correct executable path exec_path
             # exec_name = self._extract_executable_name(exec_name)
 
-            if exec_name.endswith('.TMP'):
+            if exec_name.endswith(('.TMP',  'TM')):
                 continue
 
             pf_name = pf.get("SourceFilename", "").split("\\")[-1]
@@ -168,6 +169,7 @@ class PrefetchParser:
             # Create a copy of the prefetch data without SourceFilename
             pf_data = pf.copy()
             pf_data.pop("SourceFilename", None)
+            pf_data["FilesLoaded"] = [f.strip() for f in pf_data["FilesLoaded"].split(",")]
             self.prefetch_lookup[pf_name] = pf_data
             # 3. Do ExecutableName tracking execution from multiple locations
             # Find the path that contains the executable name in the LoadedFiles
@@ -182,6 +184,7 @@ class PrefetchParser:
                 # to its original name for indexing purposes
                 exec_name = pf.get("ExecutableName", "")
                 self._track_executable(exec_name, exec_path)
+                self.cmdline_tracking(exec_name, exec_path, pf_name)
             else:
 
                 # print(files_loaded)
@@ -189,6 +192,11 @@ class PrefetchParser:
                 print(exec_name)
                 print(pf_name)
                 sys.exit(0)
+        # for cmd, pf_names in self.cmdline.items():
+        #     if len(pf_names) > 1:
+        #         print(f"{cmd}: ")
+        #         for pf_name in pf_names:
+        #             print(f"  - {pf_name}")
 
         return {
             'exec_tracking': self.exec_tracking,
@@ -248,9 +256,10 @@ class PrefetchParser:
                     exec_name in target_executable
                 ):
                     return path
+            path = ''
+        print(path)
+        print(exec_name)
         return None
-        
-        
 
     def _parse_loaded_files(self, prefetch_data: str, prefetch_name: str) -> List[str]:
         """Analyze loaded files from prefetch data."""
@@ -266,6 +275,13 @@ class PrefetchParser:
             self.exec_tracking[exec_name] = []
         if exec_path not in self.exec_tracking[exec_name]:
             self.exec_tracking[exec_name].append(exec_path)
+
+    def cmdline_tracking(self, exec_name: str, exec_path: str, pf_name):
+        if exec_name not in self.cmdline:
+            self.cmdline[exec_name] = set()
+        if exec_path in self.exec_tracking[exec_name]:
+            if pf_name not in self.cmdline[exec_name]:
+                self.cmdline[exec_name].add(pf_name)
 
 
 
