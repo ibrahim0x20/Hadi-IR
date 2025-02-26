@@ -28,7 +28,7 @@ import json
 
 from lib.utils.helpers import setup_logging, write_csv_report
 
-logger = setup_logging('w')
+logger = setup_logging()
 
 from lib.config.config import Config
 from lib.core.analyzer import PrefetchAnalyzer
@@ -40,11 +40,12 @@ from lib.database.db_manager import DatabaseManager
 def check_directory(directory_path: str) -> str:
     """Validate directory path and Prefetch folder existence."""
     if not directory_path:
-        print("Error: Please provide a directory path.")
+        
+        logger.error("Please provide a directory path for triage.")
         sys.exit(1)
 
     if not os.path.exists(directory_path):
-        print("Error: The specified directory does not exist.")
+        logger.error("The specified directory does not exist.")
         sys.exit(1)
 
     prefetch_folder = os.path.join(directory_path, "Prefetch")
