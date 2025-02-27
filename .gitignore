@@ -3,5 +3,5 @@ Tools/*.dll
 Tools/*.json
 prefetch_analyzer/data/*.json
 experiment
-prefetch_analyzer/lib/__pycache__
+lib/Prefetch/lib/__pycache__
 signature_scan.log

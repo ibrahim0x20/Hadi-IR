@@ -146,7 +146,6 @@ class PrefetchParser:
 
         for pf in self.prefetch_files:
             exec_name = pf.get("ExecutableName", "")
-
             # Some Executables name do not end with .exe like Op-MSEDGE.EXE-37D25F9A, so we need to extract the exact exe name.
             # This is required to extract the correct executable path exec_path
             # exec_name = self._extract_executable_name(exec_name)
@@ -191,12 +190,7 @@ class PrefetchParser:
                 print("Executable path not found")
                 print(exec_name)
                 print(pf_name)
-                sys.exit(0)
-        # for cmd, pf_names in self.cmdline.items():
-        #     if len(pf_names) > 1:
-        #         print(f"{cmd}: ")
-        #         for pf_name in pf_names:
-        #             print(f"  - {pf_name}")
+                # sys.exit(0)
 
         return {
             'exec_tracking': self.exec_tracking,

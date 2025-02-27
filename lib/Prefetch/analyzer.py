@@ -7,13 +7,12 @@ import pandas as pd
 import sys
 import os
 import csv
-import json
 import io
-import logging
 import re
 from pathlib import Path
 
 
+from lib.database.mySQLite import SQLiteManager
 # from AptUrl.Parser import whitelist
 is_redirected = None
 
@@ -27,8 +26,6 @@ def print_to_console(message):
         print(message, file=sys.stderr, flush=True)
         return
     print(message)
-
-from ..database.mySQLite import SQLiteManager
 
 
 @dataclass
@@ -45,7 +42,7 @@ class PrefetchData:
 
 
 class PrefetchAnalyzer:
-    def __init__(self, triage_folder, config, prefetch_data: Dict, computer_name: str):
+    def __init__(self, triage_folder, config, prefetch_data, fileslist_db: SQLiteManager, computer_name: str):
 
         """
                Initialize the PrefetchAnalyzer.
@@ -76,7 +73,7 @@ class PrefetchAnalyzer:
         self.suspicious_files: List[PrefetchData] = []
 
         #Initialize whitelist executable paths
-        self.files_list = SQLiteManager(os.path.join(triage_folder, 'fileslist.db'))
+        self.files_list = fileslist_db
         self.whitelist_patterns : List[str]= []
         self.read_regex()
         self.whitelist = self.read_whitelist()
@@ -174,7 +171,7 @@ class PrefetchAnalyzer:
            }
 
     def read_whitelist(self):
-        # whitelist_path = os.path.join("prefetch_analyzer/data", "whitelist.txt")
+        # whitelist_path = os.path.join("Prefetch/data", "whitelist.txt")
 
         with open(self.whitelist_path, 'r') as f:
             whitelist = [line.strip() for line in f]
@@ -438,7 +435,7 @@ class PrefetchAnalyzer:
                     details = f"Not Found"
                     self.update_suspecious_files(pf_name, details, file)
 
-    def query_database(self, db_instance: SQLiteManager, query: str) -> Optional[Dict]:
+    def query_database(self, db_instance, query: str) -> Optional[Dict]:
         """
         Query the specified SQLite database instance using a custom query.
 

@@ -8,6 +8,10 @@ from typing import List, Dict, Any, Optional, Union, Tuple
 from datetime import datetime
 from threading import Lock
 
+from lib.utils.helpers import  setup_logging
+
+setup_logging()
+
 class SQLiteManager:
     """A modular SQLite database manager that can handle any database and table structure."""
     
@@ -18,26 +22,14 @@ class SQLiteManager:
         Args:
             db_path: Path to the SQLite database file
         """
+        self.logger = logging.getLogger(__name__)
         self.db_path = db_path
-        self._setup_logging()
         self._connection = None
         self._connection_lock = Lock()
         self._initialize_connection()
         # Register cleanup on program exit
         atexit.register(self._cleanup)
 
-    def _setup_logging(self) -> None:
-        """Configure logging for the database operations."""
-        self.logger = logging.getLogger(__name__)
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            handler = logging.FileHandler('prefetch_analysis.log')
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
 
     def _initialize_connection(self) -> None:
         """Initialize the database connection with optimizations."""

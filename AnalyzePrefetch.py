@@ -15,7 +15,7 @@ from absl.testing.parameterized import NoTestsError
 
 from lib.database.mySQLite import SQLiteManager
 
-signed_files = SQLiteManager(os.path.join('prefetch_analyzer/data', 'signatures.db'))
+signed_files = SQLiteManager(os.path.join('data', 'signatures.db'))
 
 
 def setup_logging():
@@ -176,7 +176,7 @@ def write_suspicious_files_to_csv(suspicious_files: List[Dict]) -> str:
 
     return csv_data
 def read_whitelist(list_files):
-    whitelist_path = os.path.join("prefetch_analyzer/data", "whitelist.txt")
+    whitelist_path = os.path.join("data", "whitelist.txt")
 
     with open(whitelist_path, 'r') as f:
         whitelist = [line.strip() for line in f]
@@ -244,7 +244,7 @@ def main(triage_folder: str) -> None:
 
     whitelist = read_whitelist(list_files)
 
-    blacklist_path = os.path.join("prefetch_analyzer/data", "blacklist.txt")
+    blacklist_path = os.path.join("data", "blacklist.txt")
     with open(blacklist_path, 'r') as f:
         blacklist = [line.strip() for line in f]
     # Dictionary to track exec_name and their exec_path occurrences

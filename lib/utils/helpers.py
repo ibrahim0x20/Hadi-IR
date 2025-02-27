@@ -1,4 +1,3 @@
-# prefetch_analyzer/utils/helpers.py
 
 import logging
 import sys
@@ -8,6 +7,12 @@ import csv
 import io
 from datetime import datetime
 import re
+
+# At the top of the file, after imports
+logger = logging.getLogger(__name__)
+
+csv.field_size_limit(5242880)
+
 
 
 # def setup_logging(mode = None) -> logging.Logger:
@@ -21,30 +26,37 @@ import re
         # ]
     # )
     # return logging.getLogger(__name__)
-    
 
 
+def setup_logging(mode=None):
+    """Configure logging for the application."""
+    # Configure the root logger
+    root_logger = logging.getLogger()
 
-def setup_logging(mode=None) -> logging.Logger:
-    """Configure logging for the database operations."""
-    logger = logging.getLogger(__name__)
+    # Clear existing handlers to avoid duplication
+    if root_logger.handlers:
+        root_logger.handlers = []
 
-    # Ensure handlers are not duplicated
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        if mode:
-            handler = logging.FileHandler('HADI_IR.log', mode=mode)
-        else:
-            handler = logging.FileHandler('HADI_IR.log')
+    # Create handler based on mode
+    if mode:
+        handler = logging.FileHandler('HADI_IR.log', mode=mode)
+    else:
+        handler = logging.FileHandler('HADI_IR.log')
 
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    
-    return logger  # Ensure the logger is always returned
+    # Add a console handler as well
+    # console_handler = logging.StreamHandler()
+
+    # Create and apply formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    # console_handler.setFormatter(formatter)
+
+    # Add handlers to root logger
+    root_logger.addHandler(handler)
+    # root_logger.addHandler(console_handler)
+    root_logger.setLevel(logging.INFO)
+
+    # Return the configured logger (not really needed since we configured the root logger)
 
 
 def write_csv_report(data: List[Dict], filename: str) -> None:
@@ -66,23 +78,6 @@ def write_csv_report(data: List[Dict], filename: str) -> None:
             if isinstance(row.get('Details'), list):
                 row['Details'] = ', '.join(str(d) for d in row['Details'])
             writer.writerow(row)
-            
-
-def check_directory(directory_path: str) -> str:
-    """Validate directory path and Prefetch folder existence."""
-
-    if not os.path.exists(directory_path):
-        logger.error("The specified directory does not exist.")
-        sys.exit(1)
-
-    prefetch_folder = os.path.join(directory_path, "Prefetch")
-    if not os.path.exists(prefetch_folder):
-        logger.error("No Prefetch folder found in the specified directory.")
-        sys.exit(1)
-
-    return prefetch_folder
-    
-
 
 
 def read_csv(file_path, headers):
@@ -127,13 +122,11 @@ def read_csv(file_path, headers):
 
             # If no match is found, return None
             if file_type is None:
-                print("The CSV header does not match any predefined headers.")
+                logger.info(f"The CSV header does not match any predefined headers: {os.path.abspath(file_path)}")
                 return None, []
 
             # Read the rest of the CSV data
             data = list(csv.DictReader(f, fieldnames=predefined_header))
-
-            print(f"This is a {file_type} CSV file.")
             return file_type, data
 
     except FileNotFoundError:
@@ -159,7 +152,4 @@ def read_csv(file_path, headers):
         logger.error(f"An unexpected error occurred: {ex}")
         raise
 
-    
-
-
-logger = setup_logging('w')
+setup_logging('w')

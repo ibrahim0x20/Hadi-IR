@@ -1,2 +1,17 @@
-2025-02-26 00:21:02,817 - lib.utils.helpers - INFO - Logger is setup correctly
-2025-02-26 00:21:02,818 - lib.utils.helpers - ERROR - The specified directory does not exist.
+2025-02-28 01:47:56,884 - main - INFO - Logger is setup correctly
+2025-02-28 01:47:56,884 - lib.database.mySQLite - INFO - Database connection initialized successfully
+2025-02-28 01:47:56,884 - main - INFO - Reading file /home/ihakami/workspace/Triage/test.csv
+2025-02-28 01:47:56,884 - lib.utils.helpers - INFO - The CSV header does not match any predefined headers: /home/ihakami/workspace/Triage/test.csv
+2025-02-28 01:47:56,884 - main - INFO - Reading file /home/ihakami/workspace/Triage/PECmd_Output_Timeline.csv
+2025-02-28 01:47:56,884 - lib.utils.helpers - INFO - The CSV header does not match any predefined headers: /home/ihakami/workspace/Triage/PECmd_Output_Timeline.csv
+2025-02-28 01:47:56,884 - main - INFO - Reading file /home/ihakami/workspace/Triage/PECmd_Output.csv
+2025-02-28 01:47:56,904 - main - INFO - Analyzing Prefetch file /home/ihakami/workspace/Triage/PECmd_Output.csv
+2025-02-28 01:47:56,969 - lib.database.mySQLite - INFO - Database connection initialized successfully
+2025-02-28 01:47:58,914 - main - INFO - Reading file /home/ihakami/workspace/Triage/SuspiciousFiles.csv
+2025-02-28 01:47:58,915 - lib.utils.helpers - INFO - The CSV header does not match any predefined headers: /home/ihakami/workspace/Triage/SuspiciousFiles.csv
+2025-02-28 01:47:58,915 - main - INFO - Reading file /home/ihakami/workspace/Triage/20250224233039_Windows10C_11_DESKTOP-1EAJ6OE_AppCompatCache.csv
+2025-02-28 01:47:58,918 - main - INFO - Analyzing AppCompatCache file /home/ihakami/workspace/Triage/20250224233039_Windows10C_11_DESKTOP-1EAJ6OE_AppCompatCache.csv
+2025-02-28 01:47:58,918 - main - INFO - Reading file /home/ihakami/workspace/Triage/fileslist.csv
+2025-02-28 01:47:58,918 - lib.utils.helpers - INFO - The CSV header does not match any predefined headers: /home/ihakami/workspace/Triage/fileslist.csv
+2025-02-28 01:47:58,920 - lib.database.mySQLite - INFO - Database connection closed successfully
+2025-02-28 01:47:58,924 - lib.database.mySQLite - INFO - Database connection closed successfully
