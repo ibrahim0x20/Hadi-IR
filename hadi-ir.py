@@ -48,7 +48,6 @@ def run_pecmd(directory_path: str, prefetch_folder: str) -> str:
     return pecmd_output
 
 
-
 def main() -> None:
     """Main function to process prefetch files."""
 
@@ -61,11 +60,10 @@ def main() -> None:
     parser.add_argument('-rc', '--runcount', action='store_true',
                         help='Print the list of executables that run frequently')
 
-    
     args = parser.parse_args()
 
     logger.info("Logger is setup correctly")
-    
+
     config = Config()
 
     # Initialize whitelist executable paths
@@ -119,6 +117,7 @@ def main() -> None:
             if args.runcount:
                 if analyzer.timeline:
                     analyzer.print_frequent_executions(analyzer.timeline)
+
 
 if __name__ == "__main__":
     main()

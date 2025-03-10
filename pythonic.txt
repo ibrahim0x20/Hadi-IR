@@ -30,3 +30,7 @@
             # Check if the file is in an uncommon location and is an executable
             if not any(path in file for path in safe_paths) and file.lower().endswith(('.exe', '.dll')):
                 print(f"{file}: {pf_names}")
+
+5. if any(excluded in r for excluded in ('t8wekyb3d8bbw', 'tcw5n1h2txyew')):
+    continue  # Skip this entry
+

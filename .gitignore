@@ -5,3 +5,10 @@ prefetch_analyzer/data/*.json
 experiment
 lib/Prefetch/lib/__pycache__
 signature_scan.log
+# Ignore all .db files recursively
+*.db
+
+# Ignore all .log files recursively
+*.log
+
+#Ignore all .pyc files recursively
