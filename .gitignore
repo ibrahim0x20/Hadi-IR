@@ -3,7 +3,6 @@ Tools/*.dll
 Tools/*.json
 prefetch_analyzer/data/*.json
 experiment
-lib/Prefetch/lib/__pycache__
 signature_scan.log
 # Ignore all .db files recursively
 *.db
@@ -12,3 +11,7 @@ signature_scan.log
 *.log
 
 #Ignore all .pyc files recursively
+*.pyc
+
+# Ignore all __pycache__ folders recursively
+__pycache__/
