@@ -1,0 +1,267 @@
+import settings
+import logging
+from .ingest import Ingest
+import xml.etree.ElementTree as ET
+from appAux import loadFile
+import hashlib
+import ntpath
+from datetime import datetime
+import sys, traceback
+import os
+
+try:
+    import xml.etree.cElementTree as etree
+except ImportError:
+    print("No cElementTree available falling back to python implementation!")
+    settings.__CELEMENTREE__ = False
+    import xml.etree.ElementTree as etree
+else: settings.__CELEMENTREE__ = True
+
+logger = logging.getLogger(__name__)
+# Module to ingest AmCache data
+# File name and format is what you get from a customized Mir AmCache LUA audit
+
+
+class Amcache_mirlua_v1(Ingest):
+    ingest_type = "amcache_mirlua_v1"
+    file_name_filter = "(?:.*)(?:\/|\\\)(.*)(?:-[A-Za-z0-9]{64}-\d{1,10}-\d{1,10}_w32scripting-persistence.xml|_[A-Za-z0-9]{22}\.xml)$"
+
+    def __init__(self):
+        super(Amcache_mirlua_v1, self).__init__()
+
+    def calculateID(self, file_name_fullpath):
+        # Get the creation date for the first PersistenceItem in the audit (they will all be the same)
+        instanceID = datetime.min
+        tmp_instanceID = None
+
+        # Parsing these huge xml files to grab the last modified data as an instance ID is slower than just hashing the whole thing:
+        # try:
+        #     file_object = loadFile(file_name_fullpath)
+        #     root = ET.parse(file_object).getroot()
+        #     file_object.close()
+        #     reg_key = root.find('AmCacheItem')
+        #     reg_modified = reg_key.get('created')
+        #     try:
+        #         tmp_instanceID = datetime.strptime(reg_modified, "%Y-%m-%dT%H:%M:%SZ")
+        #     except ValueError as e:
+        #         tmp_instanceID = datetime.max
+        #         logger.warning("Invalid reg_modified date found!: %s (%s)" % (reg_modified, file_name_fullpath))
+        #     instanceID = tmp_instanceID
+        # except Exception:
+        #     traceback.print_exc(file=sys.stdout)
+
+        # If we found no AmCacheItem date we go with plan B and just hash the whole file
+        if instanceID is None:
+            file_object = loadFile(file_name_fullpath)
+            content = file_object.read()
+            instanceID = hashlib.md5(content).hexdigest()
+            file_object.close()
+
+        return instanceID
+
+    def checkMagic(self, file_name_fullpath):
+        # As long as we find one AmCacheItem PersistenceType we're declaring it good for us
+        # Check magic
+        magic_id = self.id_filename(file_name_fullpath)
+        if 'XML' in magic_id:
+            if 'Mir AmCache Lua_v1 file' in magic_id: return True
+            else:
+                file_object = loadFile(file_name_fullpath)
+                try:
+                    root = etree.parse(file_object).getroot()
+                    if root.find('AmCacheItem'):
+                        return True
+                except Exception:
+                    logger.warning("[%s] Failed to parse XML for: %s" % (self.ingest_type, file_name_fullpath))
+
+        return False
+
+
+    def _processElement(self, element, tag_dict, tag_prefix = ""):
+        # Recursively process all tags and add them to a tag dictionary
+        # We ignore tags that are duplicated in the FileAudit
+        ignore_tags = ['FileOwner','FileCreated','FileModified','FileAccessed','FileChanged','md5sum','MagicHeader','SignatureExists','SignatureVerified','SignatureDescription','CertificateSubject','CertificateIssuer']
+        for e in element:
+            if e.tag not in ignore_tags:
+                if len(e) > 0:
+                    self._processElement(e, tag_dict, tag_prefix + e.tag + '_')
+                else:
+                    if tag_prefix + e.tag not in tag_dict:
+                        if tag_prefix + e.tag == "ExecutionFlag":
+                            tag_dict[tag_prefix + e.tag] = "True" if e.text == "1" else "False" if e.text == "0" else e.text
+                        else:
+                            tag_dict[tag_prefix + e.tag] = e.text
+                    else:
+                        # Aggregate some tags when required
+                        tag_dict[tag_prefix + e.tag] = tag_dict[tag_prefix + e.tag] + ", " + e.text
+
+
+    def processFile(self, file_fullpath, hostID, instanceID, rowsData):
+        minSQLiteDTS = datetime(1, 1, 1, 0, 0, 0)
+        maxSQLiteDTS = datetime(9999, 12, 31, 0, 0, 0)
+        # alltags = set()
+        tag_mapping = [
+            ('AmCacheCompanyName', 'N/A', 'string'),
+            ('AmCacheCompileTime', 'N/A', 'datetime'),
+            ('AmCacheCreated', 'N/A', 'datetime'),
+            ('AmCacheFileDescription', 'N/A', 'string'),
+            ('AmCacheFilePath', 'N/A', 'string'),
+            ('AmCacheFileSize', 'N/A', 'string'),
+            ('AmCacheFileVersionNumber', 'N/A', 'string'),
+            ('AmCacheFileVersionString', 'N/A', 'string'),
+            ('AmCacheLanguageCode', 'N/A', 'string'),
+            ('AmCacheLastModified', 'N/A', 'datetime'),
+            ('AmCacheRegLastModified', 'LastModified', 'datetime'),
+            ('AmCachePEHeaderChecksum', 'N/A', 'string'),
+            ('AmCachePEHeaderHash', 'N/A', 'string'),
+            ('AmCachePEHeaderSize', 'N/A', 'string'),
+            ('AmCacheProductName', 'N/A', 'string'),
+            ('AmCacheProgramID', 'N/A', 'string'),
+            ('AmCacheSha1', 'SHA1', 'string'),
+            ('FileItem_Accessed', 'N/A', 'datetime'),
+            ('FileItem_Changed', 'N/A', 'datetime'),
+            ('FileItem_Created', 'N/A', 'datetime'),
+            ('FileItem_DevicePath', 'N/A', 'string'),
+            ('FileItem_Drive', 'N/A', 'string'),
+            ('FileItem_FileAttributes', 'N/A', 'string'),
+            ('FileItem_FileExtension', 'N/A', 'string'),
+            ('FileItem_FileName', 'N/A', 'string'),
+            ('FileItem_FilePath', 'N/A', 'string'),
+            ('FileItem_FullPath', 'N/A', 'string'),
+            ('FileItem_Md5sum', 'N/A', 'string'),
+            ('FileItem_Modified', 'N/A', 'datetime'),
+            ('FileItem_PEInfo_BaseAddress', 'N/A', 'string'),
+            ('FileItem_PEInfo_DigitalSignature_Description', 'N/A', 'string'),
+            ('FileItem_PEInfo_ExtraneousBytes', 'N/A', 'string'),
+            ('FileItem_PEInfo_PEChecksum_PEComputedAPI', 'N/A', 'string'),
+            ('FileItem_PEInfo_PEChecksum_PEFileAPI', 'N/A', 'string'),
+            ('FileItem_PEInfo_PEChecksum_PEFileRaw', 'N/A', 'string'),
+            ('FileItem_PEInfo_PETimeStamp', 'N/A', 'datetime'),
+            ('FileItem_PEInfo_Subsystem', 'N/A', 'string'),
+            ('FileItem_PEInfo_Type', 'N/A', 'string'),
+            ('FileItem_SecurityID', 'N/A', 'string'),
+            ('FileItem_SecurityType', 'N/A', 'string'),
+            ('FileItem_SizeInBytes', 'N/A', 'string'),
+            ('FileItem_Username', 'N/A', 'string'),
+            ('ProgramEntryPresent', 'N/A', 'string'),
+            ('ProgramInstallDate', 'N/A', 'datetime'),
+            ('ProgramInstallSource', 'N/A', 'string'),
+            ('ProgramLocaleID', 'N/A', 'string'),
+            ('ProgramName', 'N/A', 'string'),
+            ('ProgramPackageCode', 'N/A', 'string'),
+            ('ProgramPackageCode2', 'N/A', 'string'),
+            ('ProgramUninstallKey', 'N/A', 'string'),
+            ('ProgramUnknownTimestamp', 'N/A', 'datetime'),
+            ('ProgramVendorName', 'N/A', 'string'),
+            ('ProgramVersion', 'N/A', 'string')]
+
+        rowNumber = 0
+        check_tags = ['AmCacheRegLastModified']
+        try:
+            xml_data = loadFile(file_fullpath)
+            for event, element in etree.iterparse(xml_data, events=("end",)):
+                skip_entry = False
+                tag_dict = {}
+                if element.tag == "AmCacheItem":
+                    self._processElement(element, tag_dict)
+
+                    # Check we have everything we need and ignore entries with critical XML errors on them
+                    for tag in check_tags:
+                        if tag not in tag_dict:
+                                if 'AmCacheFilePath' in tag_dict:
+                                    logger.warning("Missing tag [%s] in %s, entry: %s (skipping entry)" % (tag, tag_dict['AmCacheFilePath'], file_fullpath))
+                                else:
+                                    logger.warning("Malformed tag [%s] in %s, entry: Unknown (skipping entry)" % (tag, file_fullpath))
+                                skip_entry = True
+                                break
+                        if tag_dict[tag] is None:
+                                if 'AmCacheFilePath' in tag_dict:
+                                    logger.warning("Malformed tag [%s: %s] in %s, entry: %s (skipping entry)" % (tag, tag_dict[tag], tag_dict['AmCacheFilePath'], file_fullpath))
+                                else:
+                                    logger.warning("Malformed tag [%s: %s] in %s, entry: Unknown (skipping entry)" % (tag, tag_dict[tag], file_fullpath))
+                                skip_entry = True
+                                break
+
+                    # Some entries in AmCache do not refer to files per se (like installed program entries)
+                    # We don't have much use for them right now but let's keep the data there until I figure what to do with them
+                    if 'AmCacheFilePath' not in tag_dict:
+                        if 'ProgramName' in tag_dict:
+                            tag_dict['AmCacheFilePath'] = tag_dict['ProgramName']
+                        else:
+                            # If we have nothing we can use here we skip the entry for now
+                            # todo: pretty-print the tag_dict to the log file
+                            logger.warning("AmCache entry with no AppCompatPath or ProgramName. (skipping entry) %s" % file_fullpath)
+                            break
+
+                    # If the entry is valid do some housekeeping:
+                    if not skip_entry:
+                        if 'ExecutionFlag' in tag_dict:
+                            if tag_dict['ExecutionFlag'] == '1':
+                                tmpExecFlag = True
+                            elif tag_dict['ExecutionFlag'] == '0':
+                                tmpExecFlag = False
+                            else: tmpExecFlag = tag_dict['ExecutionFlag']
+                        else:
+                            # todo: Not all OS's have exec flag. Need to change the schema to reflect those cases!
+                            tmpExecFlag = False
+
+                        try:
+                            # # Convert TS to datetime format
+                            # if 'LastModified' in tag_dict:
+                            #     tmp_LastModified = tag_dict['LastModified'].replace("T", " ").replace("Z", "")
+                            #     if type(tmp_LastModified) is not datetime:
+                            #         tmp_LastModified = datetime.strptime(tmp_LastModified, "%Y-%m-%d %H:%M:%S")
+                            # else: tmp_LastModified = minSQLiteDTS
+                            #
+                            # if 'LastUpdate' in tag_dict:
+                            #     tmp_LastUpdate = tag_dict['LastUpdate'].replace("T", " ").replace("Z", "")
+                            #     if type(tmp_LastUpdate) is not datetime:
+                            #         tmp_LastUpdate = datetime.strptime(tmp_LastUpdate, "%Y-%m-%d %H:%M:%S")
+                            # else: tmp_LastUpdate = minSQLiteDTS
+
+
+                            row_dict = {}
+                            row_dict['HostID'] = hostID
+                            row_dict['EntryType'] = settings.__APPCOMPAT__
+                            row_dict['RowNumber'] = rowNumber
+                            row_dict['InstanceID'] = instanceID
+                            # row_dict['LastModified'] = tmp_LastModified
+                            # row_dict['LastUpdate'] = tmp_LastUpdate
+                            row_dict['FileName'] = ntpath.basename(tag_dict['AmCacheFilePath'])
+                            row_dict['FilePath'] = ntpath.dirname(tag_dict['AmCacheFilePath'])
+                            row_dict['Size'] = (tag_dict['Size'] if 'Size' in tag_dict else 'N/A')
+                            row_dict['ExecFlag'] = tmpExecFlag
+
+                            # for tag in tag_dict.keys():
+                            #     alltags.add(tag)
+
+                            # Add all tags available with mappings to our database schema
+                            for src_tag, dest_tag, dest_type in tag_mapping:
+                                if dest_tag != 'N/A':
+                                    if src_tag in tag_dict:
+                                        if dest_type == 'datetime':
+                                            tmp_timestamp = tag_dict[src_tag].replace("T", " ").replace("Z", "")
+                                            if type(tmp_timestamp) is not datetime:
+                                                tmp_timestamp = datetime.strptime(tmp_timestamp, "%Y-%m-%d %H:%M:%S")
+                                                row_dict[dest_tag] = tmp_timestamp
+                                        else:
+                                            row_dict[dest_tag] = tag_dict[src_tag]
+
+                            namedrow = settings.EntriesFields(**row_dict)
+                            rowsData.append(namedrow)
+                            rowNumber += 1
+                        except Exception as e:
+                            print("crap")
+                            exc_type, exc_obj, exc_tb = sys.exc_info()
+                            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                            logger.info("Exception processing row (%s): %s [%s / %s / %s]" % (
+                            e.message, file_fullpath, exc_type, fname, exc_tb.tb_lineno))
+            else:
+                pass
+                element.clear()
+            xml_data.close()
+        except Exception as e:
+            print(e.message)
+            print(traceback.format_exc())
+            pass
+
